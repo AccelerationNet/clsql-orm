@@ -123,10 +123,14 @@ type - being the length of the varchar + 4"
 	(int2 '(integer 2))
 	(int4 '(integer 4))
 	(int8 '(integer 8))
+	(float2 '(float 2))
+	(float4 '(float 4))
+	(float8 '(float 8))
 	(char 'char)
 	(text 'string)
 	(varchar `(varchar ,(- atttypmod 4))) ; varchars start with 4 bytes specifying how long they are
 	(timestamp 'walltime)
+	(date 'date)
 	(interval 'duration)
 	(bool 'generalized-boolean)))))
 
