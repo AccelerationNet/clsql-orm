@@ -35,6 +35,14 @@ Besides this main utility, there are functions for:
 - listing all user columns of a table and their type (user-columns)
 - figuring out a clsql type given a PostgreSQL type (clsql-type-for-pg-type)
 
+
+Most of the functionality is wrapped up in one simple macro:
+(defmacro gen-view-classes-for-database ((connection-spec database-type &key (generate-joins t) (generate-accessors t)) &rest classes)
+
+That'll do it for you.
+
+Of course, database-type has to be :postgresql. The option is in for...forwards compatibility?
+
 Bug reports and patches gladly accepted.
 
 Thanks,
