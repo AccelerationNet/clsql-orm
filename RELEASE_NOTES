@@ -1,0 +1,8 @@
+v 0.2 - 3 Sept, 2005
+- Add gen-view-classes-for-database, a macro that lets you easily do everything at compile time
+- Add date type
+- Add float types
+- Minor bugfix
+
+v 0.1
+- Initial release
