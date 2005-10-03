@@ -199,7 +199,7 @@ type - being the length of the varchar + 4"
 			(colname-for-number (tablename-for-oid foreign-table-oid) foreign-colnum)))))
 
 ;;;; most often used			    
-
+; (remember: if defaults for this macro are changed, change the defaults for the next one as well!
 (defmacro gen-view-class (table &key classname (generate-joins t) (generate-accessors t))
   "Generate a view class for clsql, given a table
 If you want to name the class differently from the table, use the :classname keyword.
@@ -219,3 +219,16 @@ naming conventions, it's best to define a class that inherits from your generate
 	  (when generate-joins
 	    (clsql-join-definitions table :generate-accessors generate-accessors)))
 	(:base-table ,(intern-normalize-for-lisp table))))))
+
+(defmacro gen-view-classes-for-database ((connection-spec database-type &key (generate-joins t) (generate-accessors t)) &rest classes)
+  "This is the function most people will use to generate table classes at compile time.
+You feed it how to connect to your database, and it does it at compile time. It uses gen-view-class.
+The code for this function is instructive if you're wanting to do this sort of thing at compile time."
+  (let ((db (gensym)))
+    `(eval-when (:compile-toplevel :load-toplevel :execute)
+      (with-database (,db ',connection-spec :database-type ,database-type :if-exists :new :make-default nil)
+	(with-default-database (,db)
+	  (eval '(progn ,@(mapcar (lambda (class) `(clsql-pg-introspect:gen-view-class ,class
+						                                       :generate-joins ,generate-joins
+						                                       :generate-accessors ,generate-accessors))
+				  classes))))))))
