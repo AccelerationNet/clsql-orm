@@ -64,13 +64,13 @@
 (defun clsql-column-definitions (table &key (generate-accessors t))
   "For each user column, find out if it's a primary key, constrain it to not null if necessary,
 translate its type, and declare an initarg"
-  (loop for (column type typemod) in (user-columns table)
+  (loop for (column type length prec not-null) in (user-columns table)
 	collect `(,(intern-normalize-for-lisp column)
 		  ,@(when generate-accessors `(:accessor ,(intern-normalize-for-lisp column)))
 		  ,@(or (when (primary-key-p table column) '(:db-kind :key))
 			(when (unique-p table column) '(:db-constraints :unique))
-			(when (not-null-p table column) '(:db-constraints :not-null)))
-		  :type ,(clsql-type-for-pg-type type typemod)
+			(when not-null '(:db-constraints :not-null)))
+		  :type ,(clsql-type-for-pg-type type length prec)
 		  :initarg ,(intern-normalize-for-lisp column "KEYWORD"))))
 
 (defun clsql-join-definitions (table &key (generate-accessors t))
@@ -92,47 +92,73 @@ For that matter, if you wish to have custom names and the like, you'd best defin
 				    '(:set t)))))))
 
 ;;;;; External-ish functions
+
+
 (defun user-columns (table)
-  "Returns a list of (column name, column type, column type modifier) for the user columns of table
+  "Returns a list of (column name, column type, column length, column precision) for the user columns of table.
 Do not confuse a table with the clsql class of a table - this needs the actual table name.
 User columns are those columns which the user defines. Others are defined for various reasons. OID is often
-one of these.
-
-Type modifier is particular the type - most of the time it is null. Varchars are the most seen modified
-type - being the length of the varchar + 4"
+one of these."
   (declare (type (or string symbol) table))
-  (ensure-strings (table)
-    (clsql:select [attname] [typname] [atttypmod]
-		  :from (list [pg_catalog.pg_attribute] [pg_catalog.pg_type])
-		  :where [and [= [pg_type.oid] [pg_attribute.atttypid]]
-		              [= [attrelid] (relation-oid-sql table)]
-			      [> [attnum] 0]
-			      [= [attisdropped] [false]]])))
+  (mapcar
+   #'(lambda (row)
+       (destructuring-bind (colname typname attlen atttypmod not-null) row
+         (let ((coltype (internup typname :keyword))
+               collen
+               colprec)
+           (setf (values collen colprec)
+                 (case coltype
+                   ((:numeric :decimal)
+                    (if (= -1 atttypmod)
+                        (values nil nil)
+                        (values (ash (- atttypmod 4) -16)
+                                (boole boole-and (- atttypmod 4) #xffff))))
+                   (otherwise
+                    (values
+                     (cond ((and (= -1 attlen) (= -1 atttypmod)) nil)
+                           ((= -1 attlen) (- atttypmod 4))
+                           (t attlen))
+                     nil))))
+           (list colname coltype collen colprec not-null))))
+   (ensure-strings (table)
+     (clsql:select [attname] [typname] [attlen] [atttypmod] [attnotnull]
+                   :from (list [pg_catalog.pg_attribute] [pg_catalog.pg_type])
+                   :where [and [= [pg_type.oid] [pg_attribute.atttypid]]
+                   [= [attrelid] (relation-oid-sql table)]
+                   [> [attnum] 0]
+                   [= [attisdropped] [false]]]))))
 
-(defun clsql-type-for-pg-type (pg-type atttypmod)
+(defun clsql-type-for-pg-type (pg-type attlen attprec)
   "Given a postgres type and a modifier, return the clsql type"
   (declare (type (or string symbol) pg-type)
-	   (type integer atttypmod))
+	   (type (or integer null) attlen attprec))
   (ensure-strings (pg-type)
-    (destructuring-bind ((typname typtype)) (clsql:select [typname] [typtype]
-							  :from [pg_catalog.pg_type]
-							  :where [= [typname] pg-type])
-      (when (not (string-equal typtype "b"))
-	(error "I don't know how to deal with non-basetype ~A" pg-type))
-      (ecase (internup typname 'clsql-pg-introspect)
-	(int2 '(integer 2))
-	(int4 '(integer 4))
-	(int8 '(integer 8))
-	(float2 '(float 2))
-	(float4 '(float 4))
-	(float8 '(float 8))
-	(char 'char)
-	(text 'string)
-	(varchar `(varchar ,(- atttypmod 4))) ; varchars start with 4 bytes specifying how long they are
-	(timestamp 'walltime)
-	(date 'date)
-	(interval 'duration)
-	(bool 'generalized-boolean)))))
+    (unless (string-equal
+             "b"
+             (car (clsql:select [typtype]
+                                :from [pg_catalog.pg_type]
+                                :where [= [typname]
+                                          (string-downcase (string pg-type))]
+                                :flatp t)))
+      (error "I don't know how to deal with non-basetype ~A" pg-type)))
+    (ecase pg-type
+	((:int2 :int4 :int8) `(integer ,attlen))
+	((:float2 :float4 :float8) `(float ,attlen))
+	(:char 'char)
+        (:bpchar `(string ,attlen))
+	(:text 'string)
+	(:varchar (if attlen `(varchar ,attlen) 'varchar))
+        ((:numeric :decimal) (cond ((and attlen attprec)
+                                    `(number ,attlen ,attprec))
+                                   (attlen `(number ,attlen))
+                                   (t 'number)))
+	(:timestamp 'walltime)
+	(:date 'date)
+	(:interval 'duration)
+	(:bool 'generalized-boolean)
+        ((:inet :cidr) '(varchar 43)) ; 19 for IPv4, 43 for IPv6
+        (:macaddr '(varchar 17))
+        ))
 
 (defun primary-key-p (table column)
   "Given a table name and a column name, return whether that column is a primary key"
@@ -232,3 +258,4 @@ The code for this function is instructive if you're wanting to do this sort of t
 						                                       :generate-joins ,generate-joins
 						                                       :generate-accessors ,generate-accessors))
 				  classes))))))))
+
