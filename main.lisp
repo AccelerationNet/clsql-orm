@@ -259,3 +259,4 @@ The code for this function is instructive if you're wanting to do this sort of t
 						                                       :generate-accessors ,generate-accessors))
 				  classes))))))))
 
+(disable-sql-reader-syntax)
