@@ -252,7 +252,7 @@ You feed it how to connect to your database, and it does it at compile time. It 
 The code for this function is instructive if you're wanting to do this sort of thing at compile time."
   (let ((db (gensym)))
     `(eval-when (:compile-toplevel :load-toplevel :execute)
-      (with-database (,db ',connection-spec :database-type ,database-type :if-exists :new :make-default nil)
+      (with-database (,db ,connection-spec :database-type ,database-type :if-exists :new :make-default nil)
 	(with-default-database (,db)
 	  (eval '(progn ,@(mapcar (lambda (class) `(clsql-pg-introspect:gen-view-class ,class
 						                                       :generate-joins ,generate-joins
