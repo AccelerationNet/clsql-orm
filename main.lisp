@@ -78,7 +78,7 @@ translate its type, and declare an initarg"
 If you wish to have those, define a class that inherits from the generated one.
 For that matter, if you wish to have custom names and the like, you'd best define an inheriting class"
   (loop for (home-key join-class foreign-key) in (list-foreign-constraints table)
-	collect (let ((varname (internup (format nil "~A-~A" home-key join-class))))
+	collect (let ((varname (intern-normalize-for-lisp (format nil "~A" join-class))))
 		  `(,varname
 		    ,@(when generate-accessors
 			    `(:accessor ,varname))
@@ -226,7 +226,7 @@ one of these."
 
 ;;;; most often used			    
 ; (remember: if defaults for this macro are changed, change the defaults for the next one as well!
-(defmacro gen-view-class (table &key classname (generate-joins t) (generate-accessors t))
+(defmacro gen-view-class (table &key classname (generate-joins t) (generate-accessors t) (inherits-from ()))
   "Generate a view class for clsql, given a table
 If you want to name the class differently from the table, use the :classname keyword.
 If you do not want to generate join information for the class, do :generate-joins nil
@@ -239,14 +239,19 @@ naming conventions, it's best to define a class that inherits from your generate
   (ensure-strings (table)
     (let ((classname (or classname
 			 (intern-normalize-for-lisp table))))
-      `(clsql:def-view-class ,classname ()
+      `(clsql:def-view-class ,classname (,@inherits-from)
 	,(append
 	  (clsql-column-definitions table :generate-accessors generate-accessors)
 	  (when generate-joins
 	    (clsql-join-definitions table :generate-accessors generate-accessors)))
-	(:base-table ,(intern-normalize-for-lisp table))))))
+	(:base-table ,(intern-normalize-for-lisp table)))
+	
+	)))
 
-(defmacro gen-view-classes-for-database ((connection-spec database-type &key (generate-joins t) (generate-accessors t)) &rest classes)
+(defmacro gen-view-classes-for-database ((connection-spec
+					  database-type
+					  &key (generate-joins t) (generate-accessors t)
+					  (inherits-from ())) &rest classes)
   "This is the function most people will use to generate table classes at compile time.
 You feed it how to connect to your database, and it does it at compile time. It uses gen-view-class.
 The code for this function is instructive if you're wanting to do this sort of thing at compile time."
@@ -255,8 +260,9 @@ The code for this function is instructive if you're wanting to do this sort of t
       (with-database (,db ,connection-spec :database-type ,database-type :if-exists :new :make-default nil)
 	(with-default-database (,db)
 	  (eval '(progn ,@(mapcar (lambda (class) `(clsql-pg-introspect:gen-view-class ,class
-						                                       :generate-joins ,generate-joins
-						                                       :generate-accessors ,generate-accessors))
+						    :generate-joins ,generate-joins
+						    :inherits-from ,inherits-from
+						    :generate-accessors ,generate-accessors))
 				  classes))))))))
 
 (disable-sql-reader-syntax)
