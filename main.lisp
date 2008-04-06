@@ -153,6 +153,7 @@ one of these."
                                    (attlen `(number ,attlen))
                                    (t 'number)))
 	(:timestamp 'clsql-sys::wall-time)
+	(:timestamptz 'clsql-sys::wall-time)
 	(:date 'date)
 	(:interval 'duration)
 	(:bool 'generalized-boolean)
