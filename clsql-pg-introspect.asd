@@ -2,7 +2,7 @@
 
 ; For those who like that sort of thing: an ASDF package
 (defsystem clsql-pg-introspect
-   :depends-on (:clsql)
+   :depends-on (:clsql :cl-ppcre)
    :version "0.2"
    :components
    ((:file "package")

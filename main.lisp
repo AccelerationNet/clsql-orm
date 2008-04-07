@@ -66,6 +66,16 @@
   "Interns a string after uppercasing and flipping underscores to hyphens"
   (intern (normalize-for-sql (string-upcase me)) package))
 
+(defun clsql-join-column-name (table ref-table colname)
+  (declare (ignorable table)
+	   (ignorable ref-table))
+  (let ((colname (princ-to-string (intern-normalize-for-lisp colname))))
+    (intern-normalize-for-lisp
+     (cl-ppcre:regex-replace-all (cl-ppcre:create-scanner
+				  "(.*[^\-])\-?id$"
+				  :case-insensitive-mode T)
+				 colname "\\1"  ))))
+
 (defun clsql-column-definitions (table &key (generate-accessors t))
   "For each user column, find out if it's a primary key, constrain it to not null if necessary,
 translate its type, and declare an initarg"
@@ -84,12 +94,12 @@ translate its type, and declare an initarg"
 If you wish to have those, define a class that inherits from the generated one.
 For that matter, if you wish to have custom names and the like, you'd best define an inheriting class"
   (loop for (home-key join-class foreign-key) in (list-foreign-constraints table)
-	collect (let ((varname (singular-intern-normalize-for-lisp join-class)))
+	collect (let ((varname (clsql-join-column-name table join-class home-key)))
 		  `(,varname
 		    ,@(when generate-accessors
 			    `(:accessor ,varname))
 		    :db-kind :join
-		    :db-info (:join-class ,(intern-normalize-for-lisp join-class)
+		    :db-info (:join-class ,(singular-intern-normalize-for-lisp join-class)
 			      :home-key ,(intern-normalize-for-lisp home-key)
 			      :foreign-key ,(intern-normalize-for-lisp foreign-key)
 			      ,@(if (unique-p join-class
