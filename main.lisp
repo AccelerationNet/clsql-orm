@@ -69,7 +69,8 @@
 (defun clsql-column-definitions (table &key (generate-accessors t))
   "For each user column, find out if it's a primary key, constrain it to not null if necessary,
 translate its type, and declare an initarg"
-  (loop for (column type length prec not-null) in (user-columns table)
+  (loop for row in (user-columns table)
+	for (column type length prec not-null) = row
 	collect `(,(intern-normalize-for-lisp column)
 		  ,@(when generate-accessors `(:accessor ,(intern-normalize-for-lisp column)))
 		  ,@(or (when (primary-key-p table column) '(:db-kind :key))
@@ -124,7 +125,7 @@ one of these."
                            ((= -1 attlen) (- atttypmod 4))
                            (t attlen))
                      nil))))
-           (list colname coltype collen colprec not-null))))
+           (list colname coltype collen colprec (when (string-equal not-null "t") T)))))
    (ensure-strings (table)
      (clsql:select [attname] [typname] [attlen] [atttypmod] [attnotnull]
                    :from (list [pg_catalog.pg_attribute] [pg_catalog.pg_type])
