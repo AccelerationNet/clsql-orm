@@ -245,7 +245,7 @@ naming conventions, it's best to define a class that inherits from your generate
   (declare (type (or symbol string) table))
   (ensure-strings (table)
     (let ((classname (or classname
-			 (intern-normalize-for-lisp table))))
+			 (singular-intern-normalize-for-lisp table))))
       `(clsql:def-view-class ,classname (,@inherits-from)
 	,(append
 	  (clsql-column-definitions table :generate-accessors generate-accessors)
