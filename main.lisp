@@ -54,6 +54,11 @@
   "Interns a string after uppercasing and flipping underscores to hyphens"
   (intern (substitute #\- #\_ (string-upcase me)) package))
 
+(defun singular-intern-normalize-for-lisp (me &optional (package *package*))
+  "Interns a string after uppercasing and flipping underscores to hyphens"
+  (intern (substitute #\- #\_
+		      (string-upcase (adwutils:singularize me))) package))
+
 (defun normalize-for-sql (string)
   (substitute #\_ #\- string))
 
@@ -78,7 +83,7 @@ translate its type, and declare an initarg"
 If you wish to have those, define a class that inherits from the generated one.
 For that matter, if you wish to have custom names and the like, you'd best define an inheriting class"
   (loop for (home-key join-class foreign-key) in (list-foreign-constraints table)
-	collect (let ((varname (intern-normalize-for-lisp (format nil "~A" join-class))))
+	collect (let ((varname (singular-intern-normalize-for-lisp join-class)))
 		  `(,varname
 		    ,@(when generate-accessors
 			    `(:accessor ,varname))
