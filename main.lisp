@@ -243,7 +243,11 @@ one of these."
 
 ;;;; most often used			    
 ; (remember: if defaults for this macro are changed, change the defaults for the next one as well!
-(defmacro gen-view-class (table &key classname (generate-joins t) (generate-accessors t) (inherits-from ()))
+(defmacro gen-view-class (table &key classname
+				(generate-joins t)
+				(generate-accessors t)
+				(inherits-from ())
+				(slots ()))
   "Generate a view class for clsql, given a table
 If you want to name the class differently from the table, use the :classname keyword.
 If you do not want to generate join information for the class, do :generate-joins nil
@@ -260,15 +264,19 @@ naming conventions, it's best to define a class that inherits from your generate
 	,(append
 	  (clsql-column-definitions table :generate-accessors generate-accessors)
 	  (when generate-joins
-	    (clsql-join-definitions table :generate-accessors generate-accessors)))
+	    (clsql-join-definitions table :generate-accessors generate-accessors))
+	  slots)
 	(:base-table ,(intern-normalize-for-lisp table)))
 	
 	)))
 
 (defmacro gen-view-classes-for-database ((connection-spec
 					  database-type
-					  &key (generate-joins t) (generate-accessors t)
-					  (inherits-from ())) &rest classes)
+					  &key
+					  (generate-joins t)
+					  (generate-accessors t)
+					  (inherits-from ()))
+					 &rest classes)
   "This is the function most people will use to generate table classes at compile time.
 You feed it how to connect to your database, and it does it at compile time. It uses gen-view-class.
 The code for this function is instructive if you're wanting to do this sort of thing at compile time."
