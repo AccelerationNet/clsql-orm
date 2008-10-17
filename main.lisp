@@ -86,6 +86,7 @@ translate its type, and declare an initarg"
 		  ,@(or (when (primary-key-p table column) '(:db-kind :key))
 			(when (unique-p table column) '(:db-constraints :unique))
 			(when not-null '(:db-constraints :not-null)))
+		  ,@(unless not-null '(:initform nil))
 		  :type ,(clsql-type-for-pg-type type length prec)
 		  :initarg ,(intern-normalize-for-lisp column "KEYWORD"))))
 
