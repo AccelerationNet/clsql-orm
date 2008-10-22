@@ -248,6 +248,7 @@ one of these."
 				(generate-joins t)
 				(generate-accessors t)
 				(inherits-from ())
+				(metaclass ())
 				(slots ()))
   "Generate a view class for clsql, given a table
 If you want to name the class differently from the table, use the :classname keyword.
@@ -267,7 +268,9 @@ naming conventions, it's best to define a class that inherits from your generate
 	  (when generate-joins
 	    (clsql-join-definitions table :generate-accessors generate-accessors))
 	  slots)
-	(:base-table ,(intern-normalize-for-lisp table)))
+	 (:base-table ,(intern-normalize-for-lisp table))
+	 ,@(when metaclass
+	     `((:metaclass ,metaclass))))
 	
 	)))
 
@@ -276,7 +279,8 @@ naming conventions, it's best to define a class that inherits from your generate
 					  &key
 					  (generate-joins t)
 					  (generate-accessors t)
-					  (inherits-from ()))
+					  (inherits-from ())
+					  (metaclass ()))
 					 &rest classes)
   "This is the function most people will use to generate table classes at compile time.
 You feed it how to connect to your database, and it does it at compile time. It uses gen-view-class.
@@ -288,6 +292,7 @@ The code for this function is instructive if you're wanting to do this sort of t
 	  (eval '(progn ,@(mapcar (lambda (class) `(clsql-pg-introspect:gen-view-class ,class
 						    :generate-joins ,generate-joins
 						    :inherits-from ,inherits-from
+						    :metaclass ,metaclass
 						    :generate-accessors ,generate-accessors))
 				  classes))))))))
 
