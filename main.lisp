@@ -72,9 +72,10 @@
   (let ((colname (princ-to-string (intern-normalize-for-lisp colname))))
     (intern-normalize-for-lisp
      (cl-ppcre:regex-replace-all (cl-ppcre:create-scanner
-				  "(.*[^\-])\-?id$"
+				  "(.*[^\-])\-?(id|key)?$"
 				  :case-insensitive-mode T)
-				 colname "\\1"  ))))
+				 colname "\\1-JOIN"  )
+     )))
 
 (defun clsql-column-definitions (table &key (generate-accessors t))
   "For each user column, find out if it's a primary key, constrain it to not null if necessary,
