@@ -72,7 +72,7 @@
   (let ((colname (princ-to-string (intern-normalize-for-lisp colname))))
     (intern-normalize-for-lisp
      (cl-ppcre:regex-replace-all (cl-ppcre:create-scanner
-				  "(.*[^\-])\-?(id|key)?$"
+				  "^(.*?)\-?(id|key)?$"
 				  :case-insensitive-mode T)
 				 colname "\\1-JOIN"  )
      )))
