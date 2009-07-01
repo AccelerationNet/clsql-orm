@@ -77,13 +77,22 @@
 				 colname "\\1-JOIN"  )
      )))
 
+(defun accessor-name-for-column (table column)
+  (cond
+    ((string-equal column "type")
+     (intern-normalize-for-lisp #?"${table}.type"))
+    ((string-equal column "time")
+     (intern-normalize-for-lisp #?"${table}.time"))
+    (t (intern-normalize-for-lisp column))))
+
 (defun clsql-column-definitions (table &key (generate-accessors t))
   "For each user column, find out if it's a primary key, constrain it to not null if necessary,
 translate its type, and declare an initarg"
   (loop for row in (user-columns table)
 	for (column type length prec not-null) = row
 	collect `(,(intern-normalize-for-lisp column)
-		  ,@(when generate-accessors `(:accessor ,(intern-normalize-for-lisp column)))
+		  ,@(when generate-accessors
+		      `(:accessor ,(accessor-name-for-column table column)))
 		  ,@(or (when (primary-key-p table column) '(:db-kind :key))
 			(when (unique-p table column) '(:db-constraints :unique))
 			(when not-null '(:db-constraints :not-null)))
@@ -166,10 +175,14 @@ one of these."
         (:bpchar `(string ,attlen))
 	(:text 'string)
 	(:varchar (if attlen `(varchar ,attlen) 'varchar))
-        ((:numeric :decimal) (cond ((and attlen attprec)
-                                    `(number ,attlen ,attprec))
-                                   (attlen `(number ,attlen))
-                                   (t 'number)))
+        ((:numeric :decimal)
+	   'number
+	   ; None of the other cases seem to be valid typespecs.... 
+	   ;(cond ((and attlen attprec)
+	   ;	  `(number ,attlen ,attprec))
+	   ;	 (attlen `(number ,attlen))
+	   ;	 (t 'number))
+	   )
 	(:timestamp 'clsql-sys::wall-time)
 	(:timestamptz 'clsql-sys::wall-time)
 	(:date 'date)
