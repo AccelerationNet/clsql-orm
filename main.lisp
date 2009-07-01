@@ -1,4 +1,5 @@
 (in-package :clsql-pg-introspect)
+(cl-interpol:enable-interpol-syntax)
 (enable-sql-reader-syntax)
 
 ;;;;; Utilities
