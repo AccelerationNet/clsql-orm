@@ -313,7 +313,6 @@ naming conventions, it's best to define a class that inherits from your generate
 		     table
 		     :generate-accessors generate-accessors
 		     :generate-joins generate-joins)))
-      (break "~a" columns)
       (eval
        `(clsql:def-view-class ,class (,@inherits-from)
 	  ,(append
