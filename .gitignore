@@ -1,0 +1,17 @@
+.svn
+build
+dist
+Thumbs.db
+thumbs.db
+*~
+*#
+*.fasl
+etc/apache.conf
+/etc/init.d
+bin/newsite.localgetaways.com
+doc/Local-Getaways-Jesse-Template
+doc/Montery Bay Inn FINAL
+bin/www.localgetaways.com
+etc/redirect.localgetaways.com.conf
+logs
+bin

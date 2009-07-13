@@ -1,6 +1,10 @@
-(in-package :clsql-pg-introspect)
+(in-package :clsql-orm)
 (cl-interpol:enable-interpol-syntax)
-(enable-sql-reader-syntax)
+(clsql-sys:file-enable-sql-reader-syntax)
+(defvar *schema* () "The schema we are generating from " )
+(defvar *export-symbols* () "Should we export every symbol we intern? " )
+(defvar *singularize* () "Should we try to singularize table names " )
+(defvar *db-model-package* *package*)
 
 ;;;;; Utilities
 (defmacro ensure-strings ((&rest vars) &body body)
@@ -10,62 +14,27 @@
 				  (symbol-name ,var))))
     ,@body))
 
-(defun relation-oid-sql (table)
-  (declare (type (or symbol string) table))
-  (ensure-strings (table)
-    (clsql:sql-expression :string (format nil "'~A'::regclass" (normalize-for-sql table)))))
 
-(defun tablename-for-oid (tableoid)
-  (declare (type (or integer string) tableoid))
-  (let* ((t-oid (if (integerp tableoid) ; cl-sql does not currently understand that oids are integers, so it (wisely) reads them as strings
-		   tableoid
-		   (parse-integer tableoid)))
-	 (result (clsql:select [relname]
-			       :from [pg_catalog.pg_class]
-			       :where [= [oid] t-oid]
-			       :flatp t)))
-    (if result
-	(car result)
-	(error "Could not find table with oid ~A" t-oid))))
+(defun internup (me &optional (package *db-model-package*))
+  (let ((r (intern (string-upcase me) package)))
+    (when *export-symbols*
+      (export r package))
+    r))
 
-(defun column-number (table column)
-  (let ((result (clsql:select [attnum]
-			      :from [pg_catalog.pg_attribute]
-			      :where [and [= [attrelid] (relation-oid-sql table)]
-			                  [= [attname] column]]
-			      :flatp t)))
-    (if result
-	(car result)
-	(error "Could not find column ~A of table ~A" column table))))
-
-(defun colname-for-number (table colnum)
-  (let ((result (clsql:select [attname]
-			      :from [pg_catalog.pg_attribute]
-			      :where [and [= [attrelid] (relation-oid-sql table)]
-			                  [= [attnum] colnum]]
-			      :flatp t)))
-    (if result
-	(car result)
-	(error "Could not find column number ~A of table ~A" colnum table))))
-
-(defun internup (me &optional (package *package*))
-  (intern (string-upcase me) package))
-
-(defun intern-normalize-for-lisp (me &optional (package *package*))
+(defun intern-normalize-for-lisp (me &optional (package *db-model-package*))
   "Interns a string after uppercasing and flipping underscores to hyphens"
-  (intern (substitute #\- #\_ (string-upcase me)) package))
+  (internup (substitute #\- #\_ me) package))
 
-(defun singular-intern-normalize-for-lisp (me &optional (package *package*))
+(defun singular-intern-normalize-for-lisp (me &optional (package *db-model-package*))
   "Interns a string after uppercasing and flipping underscores to hyphens"
-  (intern (substitute #\- #\_
-		      (string-upcase (adwutils:singularize me))) package))
+  (intern-normalize-for-lisp
+   (if *singularize*
+       (adwutils:singularize me)
+       me)
+   package))
 
 (defun normalize-for-sql (string)
   (substitute #\_ #\- string))
-
-(defun intern-normalize-for-sql (me &optional (package *package*))
-  "Interns a string after uppercasing and flipping underscores to hyphens"
-  (intern (normalize-for-sql (string-upcase me)) package))
 
 (defun clsql-join-column-name (table ref-table colname)
   (declare (ignorable table)
@@ -75,196 +44,242 @@
      (cl-ppcre:regex-replace-all (cl-ppcre:create-scanner
 				  "^(.*?)\-?(id|key)?$"
 				  :case-insensitive-mode T)
-				 colname "\\1-JOIN"  )
-     )))
+				 colname "\\1-JOIN"))))
 
 (defun accessor-name-for-column (table column)
-  (cond
-    ((string-equal column "type")
-     (intern-normalize-for-lisp #?"${table}.type"))
-    ((string-equal column "time")
-     (intern-normalize-for-lisp #?"${table}.time"))
-    (t (intern-normalize-for-lisp column))))
+  (let ((default-sym (intern-normalize-for-lisp column)))
+    (if (eql (symbol-package default-sym) (find-package :cl))
+	(intern-normalize-for-lisp #?"${table}.${column}")
+	default-sym)))
 
 (defun clsql-column-definitions (table &key (generate-accessors t))
   "For each user column, find out if it's a primary key, constrain it to not null if necessary,
 translate its type, and declare an initarg"
-  (loop for row in (user-columns table)
-	for (column type length prec not-null) = row
-	collect `(,(intern-normalize-for-lisp column)
-		  ,@(when generate-accessors
-		      `(:accessor ,(accessor-name-for-column table column)))
-		  ,@(or (when (primary-key-p table column) '(:db-kind :key))
-			(when (unique-p table column) '(:db-constraints :unique))
-			(when not-null '(:db-constraints :not-null)))
-		  ,@(unless not-null '(:initform nil))
-		  :type ,(clsql-type-for-pg-type type length prec)
-		  :initarg ,(intern-normalize-for-lisp column "KEYWORD"))))
-
-(defun clsql-join-definitions (table &key (generate-accessors t))
-  "Creates the definitions for the joins. Note that this does not handle multi-column foreign keys at the moment.
-If you wish to have those, define a class that inherits from the generated one.
-For that matter, if you wish to have custom names and the like, you'd best define an inheriting class"
-  (loop for (home-key join-class foreign-key) in (list-foreign-constraints table)
-	collect (let ((varname (clsql-join-column-name table join-class home-key)))
-		  `(,varname
+  (iter (for row in (user-columns table))
+	(for (column type length is-null default key-type fkey-table fkey-col) = row)
+	(collect `(,(intern-normalize-for-lisp column)
 		    ,@(when generate-accessors
-			    `(:accessor ,varname))
-		    :db-kind :join
-		    :db-info (:join-class ,(singular-intern-normalize-for-lisp join-class)
-			      :home-key ,(intern-normalize-for-lisp home-key)
-			      :foreign-key ,(intern-normalize-for-lisp foreign-key)
-			      ,@(if (unique-p join-class
-					      foreign-key)
-				    '(:set nil)
-				    '(:set t)))))))
+			`(:accessor ,(accessor-name-for-column table column)))
+		    ,@(when (eql key-type :primary-key)
+			'(:db-kind :key))
+		    ,@(unless is-null
+			'(:db-constraints :not-null))
+		    ,@(when (and is-null (null default)) '(:initform nil))
+		    :type ,(clsql-type-for-db-type type length prec)
+		    :initarg ,(intern-normalize-for-lisp column :keyword)))
+	(when (eql key-type :foreign-key)
+	  (collect clsql-join-definition
+	    ))))
+
+(defun clsql-join-definition (home-table home-key foreign-table foreign-key
+			      &key (generate-accessors t))
+  "Creates the definition for the joins. Note that this does not handle multi-column foreign keys at the moment.
+For that matter, if you wish to have custom names and the like, you'd best define an inheriting class"
+  (let ((varname (clsql-join-column-name home-table foreign-table home-key)))
+    `(,varname
+      ,@(when generate-accessors
+	  `(:accessor ,varname))
+      :db-kind :join
+      :db-info (:join-class ,(singular-intern-normalize-for-lisp foreign-table)
+			    :home-key ,(intern-normalize-for-lisp home-key)
+			    :foreign-key ,(intern-normalize-for-lisp foreign-key)
+			;   ,@(if (unique-p join-class foreign-key)
+			;	  '(:set nil)
+			;	  '(:set t))
+			    ))))
 
 ;;;;; External-ish functions
 
 
-(defun user-columns (table)
-  "Returns a list of (column name, column type, column length, column precision) for the user columns of table.
-Do not confuse a table with the clsql class of a table - this needs the actual table name.
-User columns are those columns which the user defines. Others are defined for various reasons. OID is often
-one of these."
+(defun user-columns ( table &optional (schema *schema*))
+  "Returns a list of
+   (column type length is-null default key-type fkey-table fkey-col)
+   for the user columns of table.
+   Do not confuse a table with the clsql class of a table - this needs the actual table name.
+   User columns are those columns which the user defines. Others are defined for various reasons. OID is often
+   one of these."
   (declare (type (or string symbol) table))
   (mapcar
    #'(lambda (row)
-       (destructuring-bind (colname typname attlen atttypmod not-null) row
-         (let ((coltype (internup typname :keyword))
-               collen
-               colprec)
-           (setf (values collen colprec)
-                 (case coltype
-                   ((:numeric :decimal)
-                    (if (= -1 atttypmod)
-                        (values nil nil)
-                        (values (ash (- atttypmod 4) -16)
-                                (boole boole-and (- atttypmod 4) #xffff))))
-                   (otherwise
-                    (values
-                     (cond ((and (= -1 attlen) (= -1 atttypmod)) nil)
-                           ((= -1 attlen) (- atttypmod 4))
-                           (t attlen))
-                     nil))))
-           (list colname coltype collen colprec (when (string-equal not-null "t") T)))))
-   (ensure-strings (table)
-     (clsql:select [attname] [typname] [attlen] [atttypmod] [attnotnull]
-                   :from (list [pg_catalog.pg_attribute] [pg_catalog.pg_type])
-                   :where [and [= [pg_type.oid] [pg_attribute.atttypid]]
-                   [= [attrelid] (relation-oid-sql table)]
-                   [> [attnum] 0]
-                   [= [attisdropped] [false]]]))))
+       (destructuring-bind (column type length is-null default key-type fkey-table fkey-col)
+	   row
+	 (setf type (adwutils:symbolize-string type :keyword))
+	 (setf is-null (string-equal is-null "YES"))
+	 (setf key-type (adwutils:symbolize-string key-type :keyword))
+	 (list column type length is-null default key-type fkey-table fkey-col)))
+   (ensure-strings (table schema)
+     (setf table (clsql-sys:sql-escape-quotes table))
+     (setf schema (clsql-sys:sql-escape-quotes schema))
+     (clsql:query "
+SELECT cols.column_name, cols.data_type, 
+  COALESCE(cols.character_maximum_length, 
+  cols.numeric_precision), 
+  cols.is_nullable, 
+  cols.column_default,
+  cons.constraint_type,
+  fkey.table_name,
+  fkey.column_name
 
-(defun clsql-type-for-pg-type (pg-type attlen attprec)
+FROM information_schema.columns as cols
+LEFT JOIN information_schema.key_column_usage as keys
+  ON keys.column_name = cols.column_name
+  AND keys.table_name = cols.table_name
+  AND keys.table_schema = cols.table_schema
+LEFT JOIN information_schema.table_constraints as cons
+  ON cons.constraint_name  = keys.constraint_name
+  AND cons.constraint_schema = cons.constraint_schema
+
+LEFT JOIN information_schema.referential_constraints as refs
+  ON  refs.constraint_name = cons.constraint_name
+  AND refs.constraint_name = cons.constraint_name
+
+LEFT JOIN information_schema.key_column_usage as fkey
+  ON fkey.constraint_schema = refs.unique_constraint_schema
+  AND fkey.constraint_name = refs.unique_constraint_name
+
+WHERE UPPER(cols.table_schema) ='${schema}'
+ AND UPPER(cols.table_name) ='${table}'
+"
+		  :flatp T
+       ))))
+
+(defun clsql-type-for-db-type (db-type len prec)
   "Given a postgres type and a modifier, return the clsql type"
-  (declare (type (or string symbol) pg-type)
-	   (type (or integer null) attlen attprec))
-  (ensure-strings (pg-type)
-    (unless (string-equal
-             "b"
-             (car (clsql:select [typtype]
-                                :from [pg_catalog.pg_type]
-                                :where [= [typname]
-                                          (string-downcase (string pg-type))]
-                                :flatp t)))
-      (error "I don't know how to deal with non-basetype ~A" pg-type)))
-    (ecase pg-type
-	((:int2 :int4 :int8) `(integer ,attlen))
-	((:float2 :float4 :float8) `(float ,attlen))
-	(:char 'char)
-        (:bpchar `(string ,attlen))
-	(:text 'string)
-	(:varchar (if attlen `(varchar ,attlen) 'varchar))
-        ((:numeric :decimal)
-	   'number
-	   ; None of the other cases seem to be valid typespecs.... 
-	   ;(cond ((and attlen attprec)
-	   ;	  `(number ,attlen ,attprec))
-	   ;	 (attlen `(number ,attlen))
-	   ;	 (t 'number))
-	   )
-	(:timestamp 'clsql-sys::wall-time)
-	(:timestamptz 'clsql-sys::wall-time)
-	(:date 'date)
-	(:interval 'duration)
-	(:bool 'generalized-boolean)
-        ((:inet :cidr) '(varchar 43)) ; 19 for IPv4, 43 for IPv6
-        (:macaddr '(varchar 17))
-        ))
+  (declare (type (or string symbol) db-type)
+	   (type (or integer null) len)
+	   (ignore prec))
+  
+    (ecase db-type
+      ((:smallint :tinyint :bigint :int :int2 :int4 :int8 :integer)
+	 'integer)
+      ((:float :float2 :float4 :float8 :double-precision)
+	 'double-float)
+      ((:text :ntext) 'varchar)
+      ((:char :bpchar :varchar :nvarchar)
+	 (if len `(varchar ,len) 'varchar))
+      ((:numeric :decimal :money)
+	 'number)
+      ((:datetime :timestamptz :timestamp :timestamp-with-time-zone)
+	 'clsql-sys::wall-time)
+      ((:date :smalldatetime)
+	 'date)
+      (:interval 'duration)
+      ( :uniqueidentifier 'number)
+      ((:bool :boolean :bit) 'boolean)
+      ((:inet :cidr) '(varchar 43))	; 19 for IPv4, 43 for IPv6
+      (:macaddr '(varchar 17))
+      (:image '(vector (unsigned-byte 8)))
+      ))
 
-(defun primary-key-p (table column)
+(defun has-constraint-p (table column &key (type "PRIMARY KEY")  (schema *schema*))
+  (declare (type (or string symbol) table column))
+  (ensure-strings (table column type schema)
+    (clsql:select
+	1
+      :from (list 
+	     [information_schema.table_constraints]
+	     [information_schema.constraint_column_usage])
+      :flatp T
+      :where [and [= [UPPER [information_schema.table_constraints.constraint_type]]
+		     (string-upcase type)]
+		  [= [UPPER [information_schema.table_constraints.table_name]]
+		     (string-upcase table)]
+		  [= [UPPER [information_schema.constraint_column_usage.column_name]]
+		     (string-upcase column)]
+		  [= [UPPER [information_schema.table_constraints.table_schema]]
+		     (string-upcase schema)]
+		  ;; joins
+		  [= [information_schema.constraint_column_usage.table_name]
+		     [information_schema.table_constraints.table_name]]
+		  [= [information_schema.constraint_column_usage.table_schema]
+		     [information_schema.table_constraints.table_schema]]
+		  [= [information_schema.constraint_column_usage.constraint_schema]
+		     [information_schema.table_constraints.constraint_schema]]
+		  [= [information_schema.constraint_column_usage.constraint_name]
+		     [information_schema.table_constraints.constraint_name]]
+		  ])))
+
+(defun primary-key-p (table column &optional (schema *schema*))
   "Given a table name and a column name, return whether that column is a primary key"
   (declare (type (or string symbol) table column))
-  (ensure-strings (table column)
-    (let ((colnumber (column-number table column)))
-      (let ((response (clsql:select 1
-				    :from [pg_catalog.pg_constraint]
-				    :where [and [= [conrelid] (relation-oid-sql table)]
-				                [= [contype] "p"]
-				                [= (clsql:sql-expression :string "conkey[1]") colnumber]])))
-	(if response
-	    t
-	    nil)))))
+  (if (has-constraint-p table column :type "PRIMARY KEY" :schema schema)
+      t
+      nil))
 
-(defun unique-p (table column)
-  "Returns whether a column is constrainted to unique or is a primary key (therefore effectively unique)"
+(defun primary-keys (table &optional (schema *schema*))
+  (declare (type (or string symbol) table ))
+  (ensure-strings (table schema)
+    (clsql:select
+	[column_name]
+      :from (list 
+	     [information_schema.table_constraints]
+	     [information_schema.constraint_column_usage])
+      :flatp T
+      :where [and [= [UPPER [information_schema.table_constraints.constraint_type]]
+		     "PRIMARY KEY"]
+		  [= [UPPER [information_schema.table_constraints.table_name]]
+		     (string-upcase table)]
+		  [= [UPPER [information_schema.table_constraints.table_schema]]
+		     (string-upcase schema)]
+		  ;; joins
+		  [= [information_schema.constraint_column_usage.table_name]
+		     [information_schema.table_constraints.table_name]]
+		  [= [information_schema.constraint_column_usage.table_schema]
+		     [information_schema.table_constraints.table_schema]]
+		  [= [information_schema.constraint_column_usage.constraint_schema]
+		     [information_schema.table_constraints.constraint_schema]]
+		  [= [information_schema.constraint_column_usage.constraint_name]
+		     [information_schema.table_constraints.constraint_name]]
+		  ])))
+
+(defun unique-p (table column &optional (schema *schema*))
+  "Returns whether a column is constrainted to unique"
   (declare (type (or string symbol) table column))
-  (ensure-strings (table column)
-    (let ((colnumber (column-number table column)))
-      (let ((response (clsql:select 1
-				    :from [pg_catalog.pg_constraint]
-				    :where [and [= [conrelid] (relation-oid-sql table)]
-				                [or [= [contype] "u"] [= [contype] "p"]]
-						[= (clsql:sql-expression :string "conkey[1]") colnumber]])))
-	(if response
-	    t
-	    nil)))))
-
-(defun not-null-p (table column)
-  "Returns true if a column is constrained to be not-null"
-  (declare (type (or string symbol) table column))
-  (ensure-strings (table column)
-    (let ((result
-	   (clsql:select [attnotnull]
-			 :from [pg_catalog.pg_attribute]
-			 :where [and [= [attrelid] (relation-oid-sql table)]
-			             [= [attname] column]]
-			 :flatp t)))
-      (unless result
-	(error "Could not find column ~A for table ~A" column table))
-      (let ((truth (car result)))
-	(cond
-	  ((string-equal "f" truth) nil)
-	  ((string-equal "t" truth) t)
-	  (t (error "expecting 't' or 'f' but got ~A when trying to find out if column ~A of table ~A is not-null" truth column table)))))))
+  (if (has-constraint-p table column :type "UNIQUE" :schema schema)
+      t
+      nil))
 
 
-(defun list-foreign-constraints (table)
+(defun list-foreign-constraints (table &optional (schema *schema*))
   "Returns (home-key foreign-table foreign-key) for each foreign constraint for the table"
   (declare (type (or string symbol) table))
-  (ensure-strings (table)
-    (loop for (local-colnum foreign-table-oid foreign-colnum)
-	  in (clsql:select (clsql:sql-expression :string "conkey[1]")
-			   [confrelid]
-			   (clsql:sql-expression :string "confkey[1]")
-			   :from [pg_catalog.pg_constraint]
-			   :where [and [= [conrelid] (relation-oid-sql table)]
-			               [= [contype] "f"] ; we're only interested in foreign keys
-				       [= 1 (clsql:sql-expression :string "array_upper(conkey,1)")]
-				       [= 1 (clsql:sql-expression :string "array_upper(confkey,1)")]])
-	  collect (list (colname-for-number table local-colnum)
-			(tablename-for-oid foreign-table-oid)
-			(colname-for-number (tablename-for-oid foreign-table-oid) foreign-colnum)))))
+  (ensure-strings (table schema)
+    (let ((table (string-upcase (clsql-sys:sql-escape-quotes table)))
+	  (schema (string-upcase (clsql-sys:sql-escape-quotes schema))))
+      (let* ((sql #?"
+SELECT hkey.column_name, fkey.table_name, fkey.column_name
+FROM  information_schema.table_constraints 
+LEFT JOIN information_schema.key_column_usage as hkey
+  ON  hkey.table_schema = information_schema.table_constraints.table_schema
+  AND hkey.table_name = information_schema.table_constraints.table_name
+  AND hkey.constraint_schema = information_schema.table_constraints.constraint_schema
+  AND hkey.constraint_name = information_schema.table_constraints.constraint_name
+LEFT JOIN information_schema.referential_constraints as refs
+  ON  refs.constraint_name = information_schema.table_constraints.constraint_name
+  AND refs.constraint_name = information_schema.table_constraints.constraint_name
+
+LEFT JOIN information_schema.key_column_usage as fkey
+  ON fkey.constraint_schema = refs.unique_constraint_schema
+  AND fkey.constraint_name = refs.unique_constraint_name
+
+WHERE information_schema.table_constraints.constraint_type = 'FOREIGN KEY' 
+  AND UPPER(information_schema.table_constraints.table_schema) ='${schema}'
+  AND UPPER(information_schema.table_constraints.table_name) ='${table}'"))
+	(clsql:query sql :flatp T)))))
 
 ;;;; most often used			    
 ; (remember: if defaults for this macro are changed, change the defaults for the next one as well!
-(defmacro gen-view-class (table &key classname
-				(generate-joins t)
-				(generate-accessors t)
-				(inherits-from ())
-				(metaclass ())
-				(slots ()))
+(defun gen-view-class (table &key classname
+			     (generate-joins t)
+			     (generate-accessors t)
+			     (inherits-from ())
+			     (package *package*)
+			     (nicknames ())
+			     (singularize T)
+			     (schema "public")
+			     (metaclass ())
+			     (slots ())
+			     (export-symbols ()))
   "Generate a view class for clsql, given a table
 If you want to name the class differently from the table, use the :classname keyword.
 If you do not want to generate join information for the class, do :generate-joins nil
@@ -273,27 +288,74 @@ table names and class names being the same.
 
 The join slots/accessors will be named [home key]-[target table]. If you want to have your own
 naming conventions, it's best to define a class that inherits from your generated class."
-  (declare (type (or symbol string) table))
+  (declare (type (or symbol string) table))  
   (ensure-strings (table)
-    (let ((classname (or classname
-			 (singular-intern-normalize-for-lisp table))))
-      `(clsql:def-view-class ,classname (,@inherits-from)
-	,(append
-	  (clsql-column-definitions table :generate-accessors generate-accessors)
-	  (when generate-joins
-	    (clsql-join-definitions table :generate-accessors generate-accessors))
-	  slots)
-	 (:base-table ,(intern-normalize-for-lisp table))
-	 ,@(when metaclass
-	     `((:metaclass ,metaclass))))
-	
-	)))
+    (let* ((*schema* schema)
+	   (*export-symbols* export-symbols)
+	   (*singularize* singularize)
+	   (*db-model-package* (or (find-package package)
+				   (make-package package :nicknames (arnesi:ensure-list nicknames) :use ())))
+	   (class (or classname
+		      (and singularize
+			   (singular-intern-normalize-for-lisp table))
+		      (intern-normalize-for-lisp table)))
+	   (columns (clsql-column-definitions table :generate-accessors generate-accessors))
+	   (joins (when generate-joins
+		    (clsql-join-definitions table :generate-accessors generate-accessors))))
+      (eval
+       `(clsql:def-view-class ,class (,@inherits-from)
+	  ,(append
+	    columns
+	    joins
+	    slots)
+	  (:base-table ,(intern-normalize-for-lisp table))
+	  ,@(when metaclass
+	      `((:metaclass ,metaclass))))))))
+
+(defun list-tables (&optional (schema *schema*))
+  (clsql:select [table_name]
+    :from [information_schema.tables]
+    :flatp T
+    :where [= [UPPER [table_schema]] (string-upcase schema)]))
+
+(defun gen-view-classes (&key
+			 (classes)
+			 (generate-joins t)
+			 (generate-accessors t)
+			 (schema "public")
+			 (package *package*)
+			 (export-symbols ())
+			 (nicknames ())
+			 (singularize T)
+			 (inherits-from ())
+			 (metaclass ()))
+  "This is the function most people will use to generate table classes. It uses gen-view-class.
+
+   This function will operate on the default clsql database
+  "
+  (iter (for table in (or classes (list-tables schema)))
+	(clsql-pg-introspect:gen-view-class
+	 table
+	 :generate-joins generate-joins
+	 :inherits-from inherits-from
+	 :singularize singularize
+	 :export-symbols export-symbols
+	 :schema schema
+	 :package package
+	 :nicknames (arnesi:ensure-list nicknames)
+	 :metaclass metaclass
+	 :generate-accessors generate-accessors)))
 
 (defmacro gen-view-classes-for-database ((connection-spec
 					  database-type
 					  &key
 					  (generate-joins t)
 					  (generate-accessors t)
+					  (schema "public")
+					  (package *package*)
+					  (export-symbols ())
+					  (nicknames ())
+					  (singularize T)
 					  (inherits-from ())
 					  (metaclass ()))
 					 &rest classes)
@@ -302,13 +364,20 @@ You feed it how to connect to your database, and it does it at compile time. It 
 The code for this function is instructive if you're wanting to do this sort of thing at compile time."
   (let ((db (gensym)))
     `(eval-when (:compile-toplevel :load-toplevel :execute)
-      (with-database (,db ,connection-spec :database-type ,database-type :if-exists :new :make-default nil)
-	(with-default-database (,db)
-	  (eval '(progn ,@(mapcar (lambda (class) `(clsql-pg-introspect:gen-view-class ,class
-						    :generate-joins ,generate-joins
-						    :inherits-from ,inherits-from
-						    :metaclass ,metaclass
-						    :generate-accessors ,generate-accessors))
-				  classes))))))))
+       (with-database (,db ,connection-spec :database-type ,database-type :if-exists :new :make-default nil)
+	 (with-default-database (,db)
+	   (mapcar (lambda (class)
+		     (clsql-pg-introspect:gen-view-class
+		      class
+		      :generate-joins ,generate-joins
+		      :inherits-from ',inherits-from
+		      :singularize ,singularize
+		      :export-symbols ,export-symbols
+		      :schema ,schema
+		      :package ,package
+		      :nicknames ',(arnesi:ensure-list nicknames)
+		      :metaclass ',metaclass
+		      :generate-accessors ,generate-accessors))
+		   (or ',classes (list-tables ,schema))))))))
 
 (disable-sql-reader-syntax)

@@ -1,6 +1,8 @@
 (defpackage "CLSQL-PG-INTROSPECT"
-  (:use "CL" "CLSQL")
+  (:use "CL" "CLSQL" :iterate)
+  (:shadow #:list-tables )
   (:export :gen-view-class
+	   :gen-view-classes
 	   :gen-view-classes-for-database
 	   :list-foreign-constraints
 	   :not-null-p
