@@ -253,7 +253,14 @@ naming conventions, it's best to define a class that inherits from your generate
    This function will operate on the default clsql database
   "
   (unless view-inherits-from (setf view-inherits-from inherits-from))
-  (iter (for (table type) in (or classes (list-tables schema)))
+  (setf classes
+	(if classes
+	    (iter (for class in classes)
+		  (collect (if (listp class)
+			       class
+			       (list class nil))))
+	    (list-tables schema)))
+  (iter (for (table type) in classes)
 	(gen-view-class
 	 table
 	 :generate-joins generate-joins
