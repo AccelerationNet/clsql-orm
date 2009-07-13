@@ -93,6 +93,7 @@ For that matter, if you wish to have custom names and the like, you'd best defin
       :db-info (:join-class ,(singular-intern-normalize-for-lisp foreign-table)
 			    :home-key ,(intern-normalize-for-lisp home-key)
 			    :foreign-key ,(intern-normalize-for-lisp foreign-key)
+			    :set nil
 			;   ,@(if (unique-p join-class foreign-key)
 			;	  '(:set nil)
 			;	  '(:set t))
@@ -279,10 +280,18 @@ WHERE information_schema.table_constraints.constraint_type = 'FOREIGN KEY'
 
 ;;;; most often used			    
 ; (remember: if defaults for this macro are changed, change the defaults for the next one as well!
+(defun list-tables (&optional (schema *schema*))
+  (clsql:select [table_name] [table_type]
+    :from [information_schema.tables]
+    :flatp T
+    :where [= [UPPER [table_schema]] (string-upcase schema)]))
+
 (defun gen-view-class (table &key classname
+			     (is-view nil)
 			     (generate-joins t)
 			     (generate-accessors t)
 			     (inherits-from ())
+			     (view-inherits-from ())
 			     (package *package*)
 			     (nicknames ())
 			     (singularize T)
@@ -298,7 +307,8 @@ table names and class names being the same.
 
 The join slots/accessors will be named [home key]-[target table]. If you want to have your own
 naming conventions, it's best to define a class that inherits from your generated class."
-  (declare (type (or symbol string) table))  
+  (declare (type (or symbol string) table))
+  (unless view-inherits-from (setf view-inherits-from inherits-from))
   (ensure-strings (table)
     (let* ((*schema* schema)
 	   (*export-symbols* export-symbols)
@@ -314,19 +324,13 @@ naming conventions, it's best to define a class that inherits from your generate
 		     :generate-accessors generate-accessors
 		     :generate-joins generate-joins)))
       (eval
-       `(clsql:def-view-class ,class (,@inherits-from)
+       `(clsql:def-view-class ,class (,@(if is-view view-inherits-from inherits-from))
 	  ,(append
 	    columns
 	    slots)
 	  (:base-table ,(intern-normalize-for-lisp table))
 	  ,@(when metaclass
 	      `((:metaclass ,metaclass))))))))
-
-(defun list-tables (&optional (schema *schema*))
-  (clsql:select [table_name]
-    :from [information_schema.tables]
-    :flatp T
-    :where [= [UPPER [table_schema]] (string-upcase schema)]))
 
 (defun gen-view-classes (&key
 			 (classes)
@@ -338,15 +342,19 @@ naming conventions, it's best to define a class that inherits from your generate
 			 (nicknames ())
 			 (singularize T)
 			 (inherits-from ())
+			 (view-inherits-from ())
 			 (metaclass ()))
   "This is the function most people will use to generate table classes. It uses gen-view-class.
 
    This function will operate on the default clsql database
   "
-  (iter (for table in (or classes (list-tables schema)))
+  (unless view-inherits-from (setf view-inherits-from inherits-from))
+  (iter (for (table type) in (or classes (list-tables schema)))
 	(gen-view-class
 	 table
 	 :generate-joins generate-joins
+	 :is-view (string-equal type "VIEW")
+	 :view-inherits-from view-inherits-from
 	 :inherits-from inherits-from
 	 :singularize singularize
 	 :export-symbols export-symbols
@@ -367,27 +375,32 @@ naming conventions, it's best to define a class that inherits from your generate
 					  (nicknames ())
 					  (singularize T)
 					  (inherits-from ())
+					  (view-inherits-from ())
 					  (metaclass ()))
 					 &rest classes)
   "This is the function most people will use to generate table classes at compile time.
 You feed it how to connect to your database, and it does it at compile time. It uses gen-view-class.
 The code for this function is instructive if you're wanting to do this sort of thing at compile time."
+  (unless view-inherits-from (setf view-inherits-from inherits-from))
   (let ((db (gensym)))
     `(eval-when (:compile-toplevel :load-toplevel :execute)
        (with-database (,db ,connection-spec :database-type ,database-type :if-exists :new :make-default nil)
 	 (with-default-database (,db)
-	   (mapcar (lambda (class)
-		     (clsql-orm:gen-view-class
-		      class
-		      :generate-joins ,generate-joins
-		      :inherits-from ',inherits-from
-		      :singularize ,singularize
-		      :export-symbols ,export-symbols
-		      :schema ,schema
-		      :package ,package
-		      :nicknames ',(arnesi:ensure-list nicknames)
-		      :metaclass ',metaclass
-		      :generate-accessors ,generate-accessors))
+	   (mapcar (lambda (table-info)
+		     (destructuring-bind (class type) table-info
+		       (clsql-orm:gen-view-class
+			class
+			:generate-joins ,generate-joins
+			:inherits-from ',inherits-from
+			:view-inherits-from view-inherits-from
+			:is-view (string-equal type "VIEW")
+			:singularize ,singularize
+			:export-symbols ,export-symbols
+			:schema ,schema
+			:package ,package
+			:nicknames ',(arnesi:ensure-list nicknames)
+			:metaclass ',metaclass
+			:generate-accessors ,generate-accessors)))
 		   (or ',classes (list-tables ,schema))))))))
 
 (disable-sql-reader-syntax)
