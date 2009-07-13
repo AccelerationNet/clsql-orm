@@ -1,4 +1,4 @@
-(defpackage "CLSQL-PG-INTROSPECT"
+(defpackage #:clsql-orm
   (:use "CL" "CLSQL" :iterate)
   (:shadow #:list-tables )
   (:export :gen-view-class

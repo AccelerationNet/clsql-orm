@@ -52,24 +52,34 @@
 	(intern-normalize-for-lisp #?"${table}.${column}")
 	default-sym)))
 
-(defun clsql-column-definitions (table &key (generate-accessors t))
+(defun clsql-column-definitions (table &key
+				  (schema *schema*)
+				  (generate-accessors t)
+				  (generate-joins T))
   "For each user column, find out if it's a primary key, constrain it to not null if necessary,
 translate its type, and declare an initarg"
-  (iter (for row in (user-columns table))
-	(for (column type length is-null default key-type fkey-table fkey-col) = row)
-	(collect `(,(intern-normalize-for-lisp column)
-		    ,@(when generate-accessors
-			`(:accessor ,(accessor-name-for-column table column)))
-		    ,@(when (eql key-type :primary-key)
-			'(:db-kind :key))
-		    ,@(unless is-null
-			'(:db-constraints :not-null))
-		    ,@(when (and is-null (null default)) '(:initform nil))
-		    :type ,(clsql-type-for-db-type type length prec)
-		    :initarg ,(intern-normalize-for-lisp column :keyword)))
-	(when (eql key-type :foreign-key)
-	  (collect clsql-join-definition
-	    ))))
+  (let ((cols (user-columns table schema)))
+    (unless cols
+      (error "Could not find any columns for table: ~a in schema: ~a.
+              Are you sure you correctly spelled the table name?"
+	     table schema))
+    (iter (for row in cols)
+	  (for (column type length is-null default key-type fkey-table fkey-col) = row)
+	  (collect `(,(intern-normalize-for-lisp column)
+		      ,@(when generate-accessors
+			  `(:accessor ,(accessor-name-for-column table column)))
+		      ,@(when (eql key-type :primary-key)
+			  '(:db-kind :key))
+		      ,@(unless is-null
+			  '(:db-constraints :not-null))
+		      ,@(when (and is-null (null default)) '(:initform nil))
+		      :type ,(clsql-type-for-db-type type length)
+		      :initarg ,(intern-normalize-for-lisp column :keyword)))
+	  (when (and
+		 generate-joins
+		 (eql key-type :foreign-key))
+	    (collect (clsql-join-definition table column fkey-table fkey-col
+					    :generate-accessors generate-accessors))))))
 
 (defun clsql-join-definition (home-table home-key foreign-table foreign-key
 			      &key (generate-accessors t))
@@ -108,9 +118,10 @@ For that matter, if you wish to have custom names and the like, you'd best defin
 	 (setf key-type (adwutils:symbolize-string key-type :keyword))
 	 (list column type length is-null default key-type fkey-table fkey-col)))
    (ensure-strings (table schema)
-     (setf table (clsql-sys:sql-escape-quotes table))
-     (setf schema (clsql-sys:sql-escape-quotes schema))
-     (clsql:query "
+     (setf table (clsql-sys:sql-escape-quotes (string-upcase table)))
+     (setf schema (clsql-sys:sql-escape-quotes (string-upcase schema)))
+     
+     (clsql:query #?"
 SELECT cols.column_name, cols.data_type, 
   COALESCE(cols.character_maximum_length, 
   cols.numeric_precision), 
@@ -141,13 +152,12 @@ WHERE UPPER(cols.table_schema) ='${schema}'
  AND UPPER(cols.table_name) ='${table}'
 "
 		  :flatp T
-       ))))
+		  ))))
 
-(defun clsql-type-for-db-type (db-type len prec)
+(defun clsql-type-for-db-type (db-type len)
   "Given a postgres type and a modifier, return the clsql type"
   (declare (type (or string symbol) db-type)
-	   (type (or integer null) len)
-	   (ignore prec))
+	   (type (or integer null) len))
   
     (ecase db-type
       ((:smallint :tinyint :bigint :int :int2 :int4 :int8 :integer)
@@ -299,14 +309,15 @@ naming conventions, it's best to define a class that inherits from your generate
 		      (and singularize
 			   (singular-intern-normalize-for-lisp table))
 		      (intern-normalize-for-lisp table)))
-	   (columns (clsql-column-definitions table :generate-accessors generate-accessors))
-	   (joins (when generate-joins
-		    (clsql-join-definitions table :generate-accessors generate-accessors))))
+	   (columns (clsql-column-definitions
+		     table
+		     :generate-accessors generate-accessors
+		     :generate-joins generate-joins)))
+      (break "~a" columns)
       (eval
        `(clsql:def-view-class ,class (,@inherits-from)
 	  ,(append
 	    columns
-	    joins
 	    slots)
 	  (:base-table ,(intern-normalize-for-lisp table))
 	  ,@(when metaclass
@@ -334,7 +345,7 @@ naming conventions, it's best to define a class that inherits from your generate
    This function will operate on the default clsql database
   "
   (iter (for table in (or classes (list-tables schema)))
-	(clsql-pg-introspect:gen-view-class
+	(gen-view-class
 	 table
 	 :generate-joins generate-joins
 	 :inherits-from inherits-from
@@ -367,7 +378,7 @@ The code for this function is instructive if you're wanting to do this sort of t
        (with-database (,db ,connection-spec :database-type ,database-type :if-exists :new :make-default nil)
 	 (with-default-database (,db)
 	   (mapcar (lambda (class)
-		     (clsql-pg-introspect:gen-view-class
+		     (clsql-orm:gen-view-class
 		      class
 		      :generate-joins ,generate-joins
 		      :inherits-from ',inherits-from
