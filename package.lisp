@@ -1,5 +1,5 @@
 (defpackage #:clsql-orm
-  (:use "CL" "CLSQL" :iterate)
+  (:use "CL" "CLSQL" :iterate :arnesi :adwutils)
   (:shadow #:list-tables )
   (:export :gen-view-class
 	   :gen-view-classes

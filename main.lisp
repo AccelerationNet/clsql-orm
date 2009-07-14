@@ -28,13 +28,13 @@
 (defun singular-intern-normalize-for-lisp (me &optional (package *db-model-package*))
   "Interns a string after uppercasing and flipping underscores to hyphens"
   (intern-normalize-for-lisp
-   (if *singularize*
-       (adwutils:singularize me)
-       me)
+   (adwutils:singularize me)
    package))
 
-(defun normalize-for-sql (string)
-  (substitute #\_ #\- string))
+(defun normalize-for-sql (s)
+  (substitute #\_ #\- (typecase s
+			(string s)
+			(symbol (symbol-name s)))))
 
 (defun clsql-join-column-name (table ref-table colname)
   (declare (ignorable table)
@@ -64,22 +64,31 @@ translate its type, and declare an initarg"
               Are you sure you correctly spelled the table name?"
 	     table schema))
     (iter (for row in cols)
-	  (for (column type length is-null default key-type fkey-table fkey-col) = row)
-	  (collect `(,(intern-normalize-for-lisp column)
-		      ,@(when generate-accessors
-			  `(:accessor ,(accessor-name-for-column table column)))
-		      ,@(when (eql key-type :primary-key)
-			  '(:db-kind :key))
-		      ,@(unless is-null
-			  '(:db-constraints :not-null))
-		      ,@(when (and is-null (null default)) '(:initform nil))
-		      :type ,(clsql-type-for-db-type type length)
-		      :initarg ,(intern-normalize-for-lisp column :keyword)))
-	  (when (and
-		 generate-joins
-		 (eql key-type :foreign-key))
-	    (collect (clsql-join-definition table column fkey-table fkey-col
-					    :generate-accessors generate-accessors))))))
+	  (adwutils:destructure-array
+	      (column type length is-null default constraints fkey-table fkey-col)
+	      row
+	    (when (and is-null default)
+	      (warn "CLSQL-ORM: The column ~a.~a.~a should not be null and have a default value (~a)"
+		    schema table column default))
+	    (collect `(,(intern-normalize-for-lisp column)
+			,@(when generate-accessors
+			    `(:accessor ,(accessor-name-for-column table column)))
+			,@(when (member :primary-key constraints)
+			    '(:db-kind :key))
+			,@(unless is-null
+			    '(:db-constraints :not-null))
+			,@(when (and is-null (null default))
+			    '(:initform nil))
+			:type ,(clsql-type-for-db-type type length)
+			:initarg ,(intern-normalize-for-lisp column :keyword)))
+	    (when (and
+		   generate-joins
+		   (member :foreign-key constraints))
+	      (if (and fkey-table fkey-col)
+		  (collect (clsql-join-definition table column fkey-table fkey-col
+						  :generate-accessors generate-accessors))
+		  (warn "CLSQL-ORM: Could not generate a join for: ~a.~a.~a because we couldnt read the relationship. Perhaps your permissions should be adjusted"
+			schema table column)))))))
 
 (defun clsql-join-definition (home-table home-key foreign-table foreign-key
 			      &key (generate-accessors t))
@@ -90,7 +99,9 @@ For that matter, if you wish to have custom names and the like, you'd best defin
       ,@(when generate-accessors
 	  `(:accessor ,varname))
       :db-kind :join
-      :db-info (:join-class ,(singular-intern-normalize-for-lisp foreign-table)
+      :db-info (:join-class ,(if *singularize*
+				 (singular-intern-normalize-for-lisp foreign-table)
+				 (intern-normalize-for-lisp foreign-table))
 			    :home-key ,(intern-normalize-for-lisp home-key)
 			    :foreign-key ,(intern-normalize-for-lisp foreign-key)
 			    :set nil
@@ -110,19 +121,13 @@ For that matter, if you wish to have custom names and the like, you'd best defin
    User columns are those columns which the user defines. Others are defined for various reasons. OID is often
    one of these."
   (declare (type (or string symbol) table))
-  (mapcar
-   #'(lambda (row)
-       (destructuring-bind (column type length is-null default key-type fkey-table fkey-col)
-	   row
-	 (setf type (adwutils:symbolize-string type :keyword))
-	 (setf is-null (string-equal is-null "YES"))
-	 (setf key-type (adwutils:symbolize-string key-type :keyword))
-	 (list column type length is-null default key-type fkey-table fkey-col)))
-   (ensure-strings (table schema)
-     (setf table (clsql-sys:sql-escape-quotes (string-upcase table)))
-     (setf schema (clsql-sys:sql-escape-quotes (string-upcase schema)))
+  
+   
+  (ensure-strings (table schema)
+    (setf table (clsql-sys:sql-escape-quotes (normalize-for-sql (string-upcase table))))
+    (setf schema (clsql-sys:sql-escape-quotes (normalize-for-sql (string-upcase schema))))
      
-     (clsql:query #?"
+    (let ((results (clsql:query #?"
 SELECT cols.column_name, cols.data_type, 
   COALESCE(cols.character_maximum_length, 
   cols.numeric_precision), 
@@ -151,39 +156,67 @@ LEFT JOIN information_schema.key_column_usage as fkey
 
 WHERE UPPER(cols.table_schema) ='${schema}'
  AND UPPER(cols.table_name) ='${table}'
+
+ORDER BY cols.column_name, cols.data_type
 "
-		  :flatp T
-		  ))))
+				:flatp T
+				))
+	  prev-row)
+      ;(print results)
+      (iter (for l-row in results)
+	    (for row = (apply #'vector l-row))
+	    (adwutils:destructure-array
+		(column type length is-null default key-type fkey-table fkey-col)
+		row
+	      (cond
+		((not (and prev-row
+			   (string-equal (elt row 0) (elt prev-row 0)))) 
+		 (setf type (adwutils:symbolize-string type :keyword))
+		 (setf is-null (string-equal is-null "YES"))
+		 (setf key-type (list (adwutils:symbolize-string key-type :keyword)))
+		 (collect row))
+		(T;; if we got a second row it means the column has more than one constraint
+		  ;; we should put that in the constraints list
+		 (setf (aref prev-row 5)
+		       (cons (adwutils:symbolize-string key-type :keyword)
+			     (aref prev-row 5)))
+		 (awhen fkey-table
+		   (setf (aref prev-row 6) it))
+		 (awhen fkey-col
+		   (setf (aref prev-row 7) it))))
+	    (setf prev-row row))))))
 
 (defun clsql-type-for-db-type (db-type len)
   "Given a postgres type and a modifier, return the clsql type"
-  (declare (type (or string symbol) db-type)
+  (declare (type symbol db-type)
 	   (type (or integer null) len))
-  
     (ecase db-type
       ((:smallint :tinyint :bigint :int :int2 :int4 :int8 :integer)
 	 'integer)
       ((:float :float2 :float4 :float8 :double-precision)
 	 'double-float)
       ((:text :ntext) 'varchar)
-      ((:char :bpchar :varchar :nvarchar)
+      ((:char :bpchar :varchar :nvarchar :character-varying :character)
 	 (if len `(varchar ,len) 'varchar))
       ((:numeric :decimal :money)
 	 'number)
-      ((:datetime :timestamptz :timestamp :timestamp-with-time-zone)
+      ((:datetime
+	:timestamptz
+	:timestamp
+	:timestamp-with-time-zone
+	:timestamp-without-time-zone)
 	 'clsql-sys::wall-time)
       ((:date :smalldatetime)
 	 'date)
       (:interval 'duration)
-      ( :uniqueidentifier 'number)
+      (:uniqueidentifier 'number)
       ((:bool :boolean :bit) 'boolean)
       ((:inet :cidr) '(varchar 43))	; 19 for IPv4, 43 for IPv6
       (:macaddr '(varchar 17))
       (:image '(vector (unsigned-byte 8)))
       ))
 
-;;;; most often used			    
-; (remember: if defaults for this macro are changed, change the defaults for the next one as well!
+
 (defun list-tables (&optional (schema *schema*))
   (clsql:select [table_name] [table_type]
     :from [information_schema.tables]
@@ -213,7 +246,7 @@ The join slots/accessors will be named [home key]-[target table]. If you want to
 naming conventions, it's best to define a class that inherits from your generated class."
   (declare (type (or symbol string) table))
   (unless view-inherits-from (setf view-inherits-from inherits-from))
-  (ensure-strings (table)
+  (ensure-strings (table schema)
     (let* ((*schema* schema)
 	   (*export-symbols* export-symbols)
 	   (*singularize* singularize)
@@ -229,10 +262,8 @@ naming conventions, it's best to define a class that inherits from your generate
 		     :generate-joins generate-joins)))
       (eval
        `(clsql:def-view-class ,class (,@(if is-view view-inherits-from inherits-from))
-	  ,(append
-	    columns
-	    slots)
-	  (:base-table ,(intern-normalize-for-lisp table))
+	  ,(append columns slots)
+	  (:base-table ,table)
 	  ,@(when metaclass
 	      `((:metaclass ,metaclass))))))))
 
@@ -274,44 +305,3 @@ naming conventions, it's best to define a class that inherits from your generate
 	 :nicknames (arnesi:ensure-list nicknames)
 	 :metaclass metaclass
 	 :generate-accessors generate-accessors)))
-
-(defmacro gen-view-classes-for-database ((connection-spec
-					  database-type
-					  &key
-					  (generate-joins t)
-					  (generate-accessors t)
-					  (schema "public")
-					  (package *package*)
-					  (export-symbols ())
-					  (nicknames ())
-					  (singularize T)
-					  (inherits-from ())
-					  (view-inherits-from ())
-					  (metaclass ()))
-					 &rest classes)
-  "This is the function most people will use to generate table classes at compile time.
-You feed it how to connect to your database, and it does it at compile time. It uses gen-view-class.
-The code for this function is instructive if you're wanting to do this sort of thing at compile time."
-  (unless view-inherits-from (setf view-inherits-from inherits-from))
-  (let ((db (gensym)))
-    `(eval-when (:compile-toplevel :load-toplevel :execute)
-       (with-database (,db ,connection-spec :database-type ,database-type :if-exists :new :make-default nil)
-	 (with-default-database (,db)
-	   (mapcar (lambda (table-info)
-		     (destructuring-bind (class type) table-info
-		       (clsql-orm:gen-view-class
-			class
-			:generate-joins ,generate-joins
-			:inherits-from ',inherits-from
-			:view-inherits-from view-inherits-from
-			:is-view (string-equal type "VIEW")
-			:singularize ,singularize
-			:export-symbols ,export-symbols
-			:schema ,schema
-			:package ,package
-			:nicknames ',(arnesi:ensure-list nicknames)
-			:metaclass ',metaclass
-			:generate-accessors ,generate-accessors)))
-		   (or ',classes (list-tables ,schema))))))))
-
-(disable-sql-reader-syntax)
