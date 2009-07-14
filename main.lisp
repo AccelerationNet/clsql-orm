@@ -34,7 +34,8 @@
 (defun normalize-for-sql (s)
   (substitute #\_ #\- (typecase s
 			(string s)
-			(symbol (symbol-name s)))))
+			(symbol (string-downcase
+				 (symbol-name s))))))
 
 (defun clsql-join-column-name (table ref-table colname)
   (declare (ignorable table)
@@ -124,8 +125,8 @@ For that matter, if you wish to have custom names and the like, you'd best defin
   
    
   (ensure-strings (table schema)
-    (setf table (clsql-sys:sql-escape-quotes (normalize-for-sql (string-upcase table))))
-    (setf schema (clsql-sys:sql-escape-quotes (normalize-for-sql (string-upcase schema))))
+    (setf table (clsql-sys:sql-escape-quotes (string-upcase (normalize-for-sql table))))
+    (setf schema (clsql-sys:sql-escape-quotes (string-upcase (normalize-for-sql schema))))
      
     (let ((results (clsql:query #?"
 SELECT cols.column_name, cols.data_type, 
@@ -287,9 +288,11 @@ naming conventions, it's best to define a class that inherits from your generate
   (setf classes
 	(if classes
 	    (iter (for class in classes)
-		  (collect (if (listp class)
-			       class
-			       (list class nil))))
+		  (collect (typecase class
+			     (list (normalize-for-sql (first class))
+				(second class))
+			     (symbol (list (normalize-for-sql class) nil))
+			     (string (list class nil)))))
 	    (list-tables schema)))
   (iter (for (table type) in classes)
 	(gen-view-class
