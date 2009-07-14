@@ -116,7 +116,7 @@ For that matter, if you wish to have custom names and the like, you'd best defin
 
 (defun user-columns ( table &optional (schema *schema*))
   "Returns a list of
-   (column type length is-null default key-type fkey-table fkey-col)
+   #(column type length is-null default (key-types) fkey-table fkey-col)
    for the user columns of table.
    Do not confuse a table with the clsql class of a table - this needs the actual table name.
    User columns are those columns which the user defines. Others are defined for various reasons. OID is often
@@ -175,7 +175,8 @@ ORDER BY cols.column_name, cols.data_type
 		 (setf type (adwutils:symbolize-string type :keyword))
 		 (setf is-null (string-equal is-null "YES"))
 		 (setf key-type (list (adwutils:symbolize-string key-type :keyword)))
-		 (collect row))
+		 (collect row)
+		 (setf prev-row row))
 		(T;; if we got a second row it means the column has more than one constraint
 		  ;; we should put that in the constraints list
 		 (setf (aref prev-row 5)
@@ -184,8 +185,7 @@ ORDER BY cols.column_name, cols.data_type
 		 (awhen fkey-table
 		   (setf (aref prev-row 6) it))
 		 (awhen fkey-col
-		   (setf (aref prev-row 7) it))))
-	    (setf prev-row row))))))
+		   (setf (aref prev-row 7) it)))))))))
 
 (defun clsql-type-for-db-type (db-type len)
   "Given a postgres type and a modifier, return the clsql type"
