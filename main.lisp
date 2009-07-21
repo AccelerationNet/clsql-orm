@@ -122,13 +122,11 @@ For that matter, if you wish to have custom names and the like, you'd best defin
    User columns are those columns which the user defines. Others are defined for various reasons. OID is often
    one of these."
   (declare (type (or string symbol) table))
-  
-   
-  (ensure-strings (table schema)
-    (setf table (clsql-sys:sql-escape-quotes (string-upcase (normalize-for-sql table))))
-    (setf schema (clsql-sys:sql-escape-quotes (string-upcase (normalize-for-sql schema))))
-     
-    (let ((results (clsql:query #?"
+
+  (setf table (clsql-sys:sql-escape-quotes (normalize-for-sql table)))
+  (setf schema (clsql-sys:sql-escape-quotes (normalize-for-sql schema)))
+
+  (let ((results (clsql:query #?"
 SELECT cols.column_name, cols.data_type, 
   COALESCE(cols.character_maximum_length, 
   cols.numeric_precision), 
@@ -148,44 +146,44 @@ LEFT JOIN information_schema.table_constraints as cons
   AND cons.constraint_schema = cons.constraint_schema
 
 LEFT JOIN information_schema.referential_constraints as refs
-  ON  refs.constraint_name = cons.constraint_name
+  ON  refs.constraint_schema = cons.constraint_schema
   AND refs.constraint_name = cons.constraint_name
 
 LEFT JOIN information_schema.key_column_usage as fkey
   ON fkey.constraint_schema = refs.unique_constraint_schema
   AND fkey.constraint_name = refs.unique_constraint_name
 
-WHERE UPPER(cols.table_schema) ='${schema}'
- AND UPPER(cols.table_name) ='${table}'
+WHERE cols.table_schema ='${schema}'
+ AND cols.table_name ='${table}'
 
 ORDER BY cols.column_name, cols.data_type
 "
-				:flatp T
-				))
-	  prev-row)
-      ;(print results)
-      (iter (for l-row in results)
-	    (for row = (apply #'vector l-row))
-	    (adwutils:destructure-array
-		(column type length is-null default key-type fkey-table fkey-col)
-		row
-	      (cond
-		((not (and prev-row
-			   (string-equal (elt row 0) (elt prev-row 0)))) 
-		 (setf type (adwutils:symbolize-string type :keyword))
-		 (setf is-null (string-equal is-null "YES"))
-		 (setf key-type (list (adwutils:symbolize-string key-type :keyword)))
-		 (collect row)
-		 (setf prev-row row))
-		(T;; if we got a second row it means the column has more than one constraint
-		  ;; we should put that in the constraints list
-		 (setf (aref prev-row 5)
-		       (cons (adwutils:symbolize-string key-type :keyword)
-			     (aref prev-row 5)))
-		 (awhen fkey-table
-		   (setf (aref prev-row 6) it))
-		 (awhen fkey-col
-		   (setf (aref prev-row 7) it)))))))))
+			      :flatp T
+			      ))
+	prev-row)
+					;(print results)
+    (iter (for l-row in results)
+	  (for row = (apply #'vector l-row))
+	  (adwutils:destructure-array
+	      (column type length is-null default key-type fkey-table fkey-col)
+	      row
+	    (cond
+	      ((not (and prev-row
+			 (string-equal (elt row 0) (elt prev-row 0)))) 
+	       (setf type (adwutils:symbolize-string type :keyword))
+	       (setf is-null (string-equal is-null "YES"))
+	       (setf key-type (list (adwutils:symbolize-string key-type :keyword)))
+	       (collect row)
+	       (setf prev-row row))
+	      (T ;; if we got a second row it means the column has more than one constraint
+	       ;; we should put that in the constraints list
+	       (setf (aref prev-row 5)
+		     (cons (adwutils:symbolize-string key-type :keyword)
+			   (aref prev-row 5)))
+	       (awhen fkey-table
+		 (setf (aref prev-row 6) it))
+	       (awhen fkey-col
+		 (setf (aref prev-row 7) it))))))))
 
 (defun clsql-type-for-db-type (db-type len)
   "Given a postgres type and a modifier, return the clsql type"
