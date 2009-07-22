@@ -62,7 +62,7 @@ translate its type, and declare an initarg"
   (let ((cols (user-columns table schema)))
     (unless cols
       (error "Could not find any columns for table: ~a in schema: ~a.
-              Are you sure you correctly spelled the table name?"
+	      Are you sure you correctly spelled the table name?"
 	     table schema))
     (iter (for row in cols)
 	  (adwutils:destructure-array
@@ -127,10 +127,10 @@ For that matter, if you wish to have custom names and the like, you'd best defin
   (setf schema (clsql-sys:sql-escape-quotes (normalize-for-sql schema)))
 
   (let ((results (clsql:query #?"
-SELECT cols.column_name, cols.data_type, 
-  COALESCE(cols.character_maximum_length, 
-  cols.numeric_precision), 
-  cols.is_nullable, 
+SELECT cols.column_name, cols.data_type,
+  COALESCE(cols.character_maximum_length,
+  cols.numeric_precision),
+  cols.is_nullable,
   cols.column_default,
   cons.constraint_type,
   fkey.table_name,
@@ -169,7 +169,7 @@ ORDER BY cols.column_name, cols.data_type
 	      row
 	    (cond
 	      ((not (and prev-row
-			 (string-equal (elt row 0) (elt prev-row 0)))) 
+			 (string-equal (elt row 0) (elt prev-row 0))))
 	       (setf type (adwutils:symbolize-string type :keyword))
 	       (setf is-null (string-equal is-null "YES"))
 	       (setf key-type (list (adwutils:symbolize-string key-type :keyword)))
