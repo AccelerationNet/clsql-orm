@@ -76,8 +76,13 @@ translate its type, and declare an initarg"
 			    `(:accessor ,(accessor-name-for-column table column)))
 			,@(when (member :primary-key constraints)
 			    '(:db-kind :key))
-			,@(unless is-null
-			    '(:db-constraints :not-null))
+			:db-constraints
+			(
+			  ,@(when is-null '(:not-null))
+			  ,@(when (and (member :primary-key constraints)
+				       (identity-column-p table column))
+			      '(:identity))
+			  )
 			,@(when (and is-null (null default))
 			    '(:initform nil))
 			:type ,(clsql-type-for-db-type type length)
@@ -113,6 +118,16 @@ For that matter, if you wish to have custom names and the like, you'd best defin
 
 ;;;;; External-ish functions
 
+(defun identity-column-p (table column)
+  "a function that can determine if a key column is IDENTITY for sqlserver"
+  (when (typep clsql-sys:*default-database* 'clsql-odbc:odbc-database)
+    (setf table (clsql-sys:sql-escape-quotes (normalize-for-sql table)))
+    (setf column (clsql-sys:sql-escape-quotes (normalize-for-sql column)))
+    (handler-case
+	(eql 1 (first (clsql:query #?"select COLUMNPROPERTY(object_id('${table}'), '${column}', 'IsIdentity')"
+				   :flatp T)))
+      (error (c)
+	(warn "Error querying about IDENTITY ~a" c)))))
 
 (defun user-columns ( table &optional (schema *schema*))
   "Returns a list of
