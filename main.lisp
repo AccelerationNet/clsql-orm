@@ -120,7 +120,9 @@ For that matter, if you wish to have custom names and the like, you'd best defin
 
 (defun identity-column-p (table column)
   "a function that can determine if a key column is IDENTITY for sqlserver"
-  (when (typep clsql-sys:*default-database* 'clsql-odbc:odbc-database)
+  (when (and (find-package :clsql-odbc)
+	     (typep clsql-sys:*default-database*
+		    (intern "ODBC-DATABASE" :clsql-odbc)))
     (setf table (clsql-sys:sql-escape-quotes (normalize-for-sql table)))
     (setf column (clsql-sys:sql-escape-quotes (normalize-for-sql column)))
     (handler-case
