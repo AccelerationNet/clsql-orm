@@ -78,7 +78,7 @@ translate its type, and declare an initarg"
 			    '(:db-kind :key))
 			:db-constraints
 			(
-			  ,@(when is-null '(:not-null))
+			  ,@(unless is-null '(:not-null))
 			  ,@(when (and (member :primary-key constraints)
 				       (identity-column-p table column))
 			      '(:identity))
