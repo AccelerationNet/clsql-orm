@@ -72,6 +72,7 @@ translate its type, and declare an initarg"
 	      (warn "CLSQL-ORM: The column ~a.~a.~a should not be null and have a default value (~a)"
 		    schema table column default))
 	    (collect `(,(intern-normalize-for-lisp column)
+			:column ,column
 			,@(when generate-accessors
 			    `(:accessor ,(accessor-name-for-column table column)))
 			,@(when (member :primary-key constraints)
@@ -276,12 +277,12 @@ naming conventions, it's best to define a class that inherits from your generate
 		     table
 		     :generate-accessors generate-accessors
 		     :generate-joins generate-joins)))
-      (eval
-       `(clsql:def-view-class ,class (,@(if is-view view-inherits-from inherits-from))
-	  ,(append columns slots)
-	  (:base-table ,table)
-	  ,@(when metaclass
-	      `((:metaclass ,metaclass))))))))
+      (let ((form `(clsql:def-view-class ,class (,@(if is-view view-inherits-from inherits-from))
+		     ,(append columns slots)
+		     (:base-table ,table)
+		     ,@(when metaclass
+			 `((:metaclass ,metaclass))))))
+      (eval form)))))
 
 (defun gen-view-classes (&key
 			 (classes)
