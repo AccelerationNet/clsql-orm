@@ -194,7 +194,7 @@ LEFT JOIN information_schema.key_column_usage as keycols
   AND keycols.table_name = cols.table_name
   AND keycols.table_schema = cols.table_schema
 
-WHERE cols.table_name ='${table}'
+WHERE cols.table_schema = '${schema}' AND cols.table_name ='${table}'
 ORDER BY cols.column_name, cols.data_type
 ")
 	 (results (or (ignore-errors (clsql:query sql :flatp T))
