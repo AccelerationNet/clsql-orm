@@ -144,7 +144,7 @@ For that matter, if you wish to have custom names and the like, you'd best defin
   (setf table (clsql-sys:sql-escape-quotes (normalize-for-sql table)))
   (setf schema (clsql-sys:sql-escape-quotes (normalize-for-sql schema)))
 
-  (let ((results (clsql:query #?"
+  (let* ((sql #?"
 SELECT cols.column_name, cols.data_type,
   COALESCE(cols.character_maximum_length,
   cols.numeric_precision),
@@ -155,12 +155,12 @@ SELECT cols.column_name, cols.data_type,
   fkey.column_name
 
 FROM information_schema.columns as cols
-LEFT JOIN information_schema.key_column_usage as keys
-  ON keys.column_name = cols.column_name
-  AND keys.table_name = cols.table_name
-  AND keys.table_schema = cols.table_schema
+LEFT JOIN information_schema.key_column_usage as keycols
+  ON keycols.column_name = cols.column_name
+  AND keycols.table_name = cols.table_name
+  AND keycols.table_schema = cols.table_schema
 LEFT JOIN information_schema.table_constraints as cons
-  ON cons.constraint_name  = keys.constraint_name
+  ON cons.constraint_name  = keycols.constraint_name
   AND cons.constraint_schema = cons.constraint_schema
 
 LEFT JOIN information_schema.referential_constraints as refs
@@ -175,9 +175,30 @@ WHERE cols.table_schema ='${schema}'
  AND cols.table_name ='${table}'
 
 ORDER BY cols.column_name, cols.data_type
-"
-			      :flatp T
-			      ))
+")
+	 (lesser-sql #?"
+SELECT
+  DISTINCT 
+  cols.column_name, cols.data_type,
+  COALESCE(cols.character_maximum_length,
+  cols.numeric_precision),
+  cols.is_nullable,
+  cols.column_default,
+  null as constraint_type,
+  null as table_name,
+  null as column_name
+
+FROM information_schema.columns as cols
+LEFT JOIN information_schema.key_column_usage as keycols
+  ON keycols.column_name = cols.column_name
+  AND keycols.table_name = cols.table_name
+  AND keycols.table_schema = cols.table_schema
+
+WHERE cols.table_name ='${table}'
+ORDER BY cols.column_name, cols.data_type
+")
+	 (results (or (ignore-errors (clsql:query sql :flatp T))
+		      (clsql:query lesser-sql :flatp T)))
 	prev-row)
 					;(print results)
     (iter (for l-row in results)
@@ -212,7 +233,7 @@ ORDER BY cols.column_name, cols.data_type
 	 'integer)
       ((:float :float2 :float4 :float8 :double-precision)
 	 'double-float)
-      ((:text :ntext) 'varchar)
+      ((:text :ntext :longtext) 'varchar)
       ((:char :bpchar :varchar :nvarchar :character-varying :character)
 	 (if len `(varchar ,len) 'varchar))
       ((:numeric :decimal :money)
