@@ -84,8 +84,18 @@ translate its type, and declare an initarg"
 				       (identity-column-p table column))
 			      '(:identity))
 			  )
-			,@(when (and is-null (null default))
-			    '(:initform nil))
+			,@(cond
+			    (;; its null with no default
+			     (and is-null (null default))
+			     '(:initform nil))
+
+			    ;; we have a not-nullable boolean column
+			    ;; (which should have a default)
+			    ((and (not is-null) (eql type :boolean) default)
+			     `(:initform ,(not (or (string-equal default "false")
+						   (string-equal default "0"))))
+			     )
+			    )
 			:type ,(clsql-type-for-db-type type length)
 			:initarg ,(intern-normalize-for-lisp column :keyword)))
 	    (when (and
