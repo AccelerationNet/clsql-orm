@@ -27,9 +27,10 @@
 
 (defun singular-intern-normalize-for-lisp (me &optional (package *db-model-package*))
   "Interns a string after uppercasing and flipping underscores to hyphens"
-  (intern-normalize-for-lisp
-   (adwutils:singularize me)
-   package))
+  (let ((words (reverse (cl-ppcre:split "-|_" (string me))))
+	(cl-interpol:*list-delimiter* "-"))
+    (setf (first words) (adwutils:singularize (first words)))
+    (internup #?"@{ (reverse words) }" package)))
 
 (defun normalize-for-sql (s)
   (substitute #\_ #\- (typecase s
