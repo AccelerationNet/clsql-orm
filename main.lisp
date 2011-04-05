@@ -54,6 +54,15 @@
 	(intern-normalize-for-lisp #?"${table}.${column}")
 	default-sym)))
 
+(defclass column-def ()
+  #.(adwutils:slot-defs '(column db-type col-length is-null default constraints fkey-table fkey-col)))
+
+(defun column-def (column db-type col-length is-null default constraints fkey-table fkey-col)
+  (make-instance 'column-def
+		 :column column :db-type db-type :col-length col-length
+		 :is-null is-null :default default :constraints constraints
+		 :fkey-table fkey-table :fkey-col fkey-col))
+
 (defun clsql-column-definitions (table &key
 				  (schema *schema*)
 				  (generate-accessors t)
@@ -65,10 +74,9 @@ translate its type, and declare an initarg"
       (error "Could not find any columns for table: ~a in schema: ~a.
 	      Are you sure you correctly spelled the table name?"
 	     table schema))
-    (iter (for row in cols)
-	  (adwutils:destructure-array
-	      (column type length is-null default constraints fkey-table fkey-col)
-	      row
+    (iter (for col in cols)
+	  (adwutils:bind ((:accessors (column db-type col-length is-null default constraints fkey-table fkey-col)
+				      col))
 	    (when (and is-null default)
 	      (warn "CLSQL-ORM: The column ~a.~a.~a should not be null and have a default value (~a)"
 		    schema table column default))
@@ -92,12 +100,12 @@ translate its type, and declare an initarg"
 
 			    ;; we have a not-nullable boolean column
 			    ;; (which should have a default)
-			    ((and (not is-null) (eql type :boolean) default)
+			    ((and (not is-null) (eql db-type :boolean) default)
 			     `(:initform ,(not (or (string-equal default "false")
 						   (string-equal default "0"))))
 			     )
 			    )
-			:type ,(clsql-type-for-db-type type length)
+			:type ,(clsql-type-for-db-type db-type col-length)
 			:initarg ,(intern-normalize-for-lisp column :keyword)))
 	    (when (and
 		   generate-joins
@@ -209,31 +217,28 @@ WHERE cols.table_schema = '${schema}' AND cols.table_name ='${table}'
 ORDER BY cols.column_name, cols.data_type
 ")
 	 (results (or (ignore-errors (clsql:query sql :flatp T))
-		      (clsql:query lesser-sql :flatp T)))
-	prev-row)
+		      (clsql:query lesser-sql :flatp T))))
 					;(print results)
-    (iter (for l-row in results)
-	  (for row = (apply #'vector l-row))
-	  (adwutils:destructure-array
-	      (column type length is-null default key-type fkey-table fkey-col)
-	      row
-	    (cond
-	      ((not (and prev-row
-			 (string-equal (elt row 0) (elt prev-row 0))))
-	       (setf type (adwutils:symbolize-string type :keyword))
-	       (setf is-null (string-equal is-null "YES"))
-	       (setf key-type (list (adwutils:symbolize-string key-type :keyword)))
-	       (collect row)
-	       (setf prev-row row))
-	      (T ;; if we got a second row it means the column has more than one constraint
-	       ;; we should put that in the constraints list
-	       (setf (aref prev-row 5)
-		     (cons (adwutils:symbolize-string key-type :keyword)
-			   (aref prev-row 5)))
-	       (awhen fkey-table
-		 (setf (aref prev-row 6) it))
-	       (awhen fkey-col
-		 (setf (aref prev-row 7) it))))))))
+
+    (iter
+      (with prev-row)
+      (for l-row in results)
+      (for row = (apply #'column-def l-row))
+      (cond
+	((not (and prev-row (string-equal (column row) (column prev-row))))
+	 (setf (db-type row) (adwutils:symbolize-string (db-type row) :keyword))
+	 (setf (is-null row) (string-equal (is-null row) "YES"))
+	 (setf (constraints row) (list (adwutils:symbolize-string (constraints row) :keyword)))
+	 (collect row)
+	 (setf prev-row row))
+	(T ;; if we got a second row it means the column has more than one constraint
+	 ;; we should put that in the constraints list
+	 (push (adwutils:symbolize-string (constraints row) :keyword)
+	       (constraints prev-row))
+	 (awhen (fkey-table row)
+	   (setf (fkey-table prev-row) it))
+	 (awhen (fkey-col row)
+	   (setf (fkey-col prev-row) it)))))))
 
 (defun clsql-type-for-db-type (db-type len)
   "Given a postgres type and a modifier, return the clsql type"
