@@ -7,6 +7,9 @@
 (defvar *db-model-package* *package*)
 
 ;;;;; Utilities
+(defmacro awhen (cond &body body)
+  `(let ((it ,cond)) (when it ,@body)))
+
 (defmacro ensure-strings ((&rest vars) &body body)
   `(let ,(loop for var in vars
 	       collect `(,var (if (stringp ,var)
@@ -23,20 +26,17 @@
 
 (defun intern-normalize-for-lisp (me &optional (package *db-model-package*))
   "Interns a string after uppercasing and flipping underscores to hyphens"
-  (internup (substitute #\- #\_ me) package))
+  (symbol-munger:underscores->lisp-symbol me package))
 
 (defun singular-intern-normalize-for-lisp (me &optional (package *db-model-package*))
   "Interns a string after uppercasing and flipping underscores to hyphens"
   (let ((words (reverse (cl-ppcre:split "-|_" (string me))))
 	(cl-interpol:*list-delimiter* "-"))
-    (setf (first words) (adwutils:singularize (first words)))
+    (setf (first words) (vana-inflector:singular-of (first words)))
     (internup #?"@{ (reverse words) }" package)))
 
 (defun normalize-for-sql (s)
-  (substitute #\_ #\- (typecase s
-			(string s)
-			(symbol (string-downcase
-				 (symbol-name s))))))
+  (symbol-munger:lisp->underscores s :capitalize nil))
 
 (defun clsql-join-column-name (table ref-table colname)
   (declare (ignorable table)
@@ -55,7 +55,14 @@
 	default-sym)))
 
 (defclass column-def ()
-  #.(adwutils:slot-defs '(column db-type col-length is-null default constraints fkey-table fkey-col)))
+  ((column :accessor column :initform nil :initarg :column)
+   (db-type :accessor db-type :initform nil :initarg :db-type)
+   (col-length :accessor col-length :initform nil :initarg :col-length)
+   (is-null :accessor is-null :initform nil :initarg :is-null)
+   (default :accessor default :initform nil :initarg :default)
+   (constraints :accessor constraints :initform nil :initarg :constraints)
+   (fkey-table :accessor fkey-table :initform nil :initarg :fkey-table)
+   (fkey-col :accessor fkey-col :initform nil :initarg :fkey-col)))
 
 (defun column-def (column db-type col-length is-null default constraints fkey-table fkey-col)
   (make-instance 'column-def
@@ -75,8 +82,9 @@ translate its type, and declare an initarg"
 	      Are you sure you correctly spelled the table name?"
 	     table schema))
     (iter (for col in cols)
-	  (adwutils:bind ((:accessors (column db-type col-length is-null default constraints fkey-table fkey-col)
-				      col))
+	  (with-accessors ((column column) (db-type db-type) (col-length col-length)
+			   (is-null is-null) (default default) (constraints constraints)
+			   (fkey-table fkey-table) (fkey-col fkey-col)) col
 	    (when (and is-null default)
 	      (warn "CLSQL-ORM: The column ~a.~a.~a should not be null and have a default value (~a)"
 		    schema table column default))
@@ -88,13 +96,13 @@ translate its type, and declare an initarg"
 			    '(:db-kind :key))
 			:db-constraints
 			(
-			  ,@(unless is-null '(:not-null))
-			  ,@(when (and (member :primary-key constraints)
-				       (identity-column-p table column))
-			      '(:identity))
-			  )
+			 ,@(unless is-null '(:not-null))
+			 ,@(when (and (member :primary-key constraints)
+				      (identity-column-p table column))
+			     '(:identity))
+			 )
 			,@(cond
-			    (;; its null with no default
+			    ( ;; its null with no default
 			     (and is-null (null default))
 			     '(:initform nil))
 
@@ -226,14 +234,14 @@ ORDER BY cols.column_name, cols.data_type
       (for row = (apply #'column-def l-row))
       (cond
 	((not (and prev-row (string-equal (column row) (column prev-row))))
-	 (setf (db-type row) (adwutils:symbolize-string (db-type row) :keyword))
+	 (setf (db-type row) (symbol-munger:english->keyword (db-type row)))
 	 (setf (is-null row) (string-equal (is-null row) "YES"))
-	 (setf (constraints row) (list (adwutils:symbolize-string (constraints row) :keyword)))
+	 (setf (constraints row) (list (symbol-munger:english->keyword (constraints row))))
 	 (collect row)
 	 (setf prev-row row))
 	(T ;; if we got a second row it means the column has more than one constraint
 	 ;; we should put that in the constraints list
-	 (push (adwutils:symbolize-string (constraints row) :keyword)
+	 (push (symbol-munger:english->keyword (constraints row))
 	       (constraints prev-row))
 	 (awhen (fkey-table row)
 	   (setf (fkey-table prev-row) it))
