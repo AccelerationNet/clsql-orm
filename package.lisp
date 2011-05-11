@@ -1,7 +1,6 @@
 (defpackage #:clsql-orm
   (:use :cl :clsql :iterate)
   (:shadow #:list-tables )
-  (:shadowing-import-from :adwutils :join-strings)
   (:export :gen-view-class
 	   :gen-view-classes
 	   :gen-view-classes-for-database
