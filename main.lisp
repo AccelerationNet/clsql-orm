@@ -7,6 +7,7 @@
 (defvar *db-model-package* *package*)
 
 ;;;;; Utilities
+(defun ensure-list (x) (typecase x (list x) (t (list x))))
 (defmacro awhen (cond &body body)
   `(let ((it ,cond)) (when it ,@body)))
 
@@ -314,7 +315,7 @@ naming conventions, it's best to define a class that inherits from your generate
 	   (*export-symbols* export-symbols)
 	   (*singularize* singularize)
 	   (*db-model-package* (or (find-package package)
-				   (make-package package :nicknames (arnesi:ensure-list nicknames) :use ())))
+				   (make-package package :nicknames (ensure-list nicknames) :use ())))
 	   (class (or classname
 		      (and singularize
 			   (singular-intern-normalize-for-lisp table))
@@ -367,6 +368,6 @@ naming conventions, it's best to define a class that inherits from your generate
 	 :export-symbols export-symbols
 	 :schema schema
 	 :package package
-	 :nicknames (arnesi:ensure-list nicknames)
+	 :nicknames (ensure-list nicknames)
 	 :metaclass metaclass
 	 :generate-accessors generate-accessors)))
