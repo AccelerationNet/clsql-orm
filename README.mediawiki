@@ -35,31 +35,31 @@ custom clsql ORM.
 
 ;;; Results in the following class definition being evaled:
 (def-view-class user (pg-db-obj)
-  ((date-entered column date_entered accessor date-entered
-		 db-constraints nil type wall-time initarg
+  ((date-entered :column date_entered :accessor date-entered
+		 :db-constraints nil :type wall-time :initarg
 		 date-entered)
-   (deleted column deleted accessor deleted db-constraints nil
-	    type boolean initarg deleted)
-   (email column email accessor email db-constraints (not-null)
-	  type (varchar 128) initarg email)
-   (enabled column enabled accessor enabled db-constraints
-	    (not-null) initform t type boolean initarg enabled)
-   (first-name column first_name accessor first-name
-	       db-constraints nil initform nil type varchar
-	       initarg first-name)
-   (id column id accessor id db-kind key db-constraints
-       (not-null) type integer initarg id)
-   (last-name column last_name accessor last-name db-constraints
-	      nil initform nil type varchar initarg last-name)
-   (password column password accessor password db-constraints
-	     (not-null) type (varchar 32) initarg password)
-   (role-id column role_id accessor role-id db-constraints
-	    (not-null) type integer initarg role-id)
-   (role-join accessor role-join db-kind join db-info
-	      (join-class role home-key role-id foreign-key id
-			  set nil))
-   (salt column salt accessor salt db-constraints (not-null) type
-	 (varchar 4) initarg salt))
+   (deleted :column deleted :accessor deleted :db-constraints nil
+	    :type boolean :initarg deleted)
+   (email :column email :accessor email :db-constraints (not-null)
+	  :type (varchar 128) :initarg email)
+   (enabled :column enabled :accessor enabled :db-constraints
+	    (not-null) :initform t :type boolean :initarg enabled)
+   (first-name :column first_name :accessor first-name
+	       :db-constraints nil :initform nil :type varchar
+	       :initarg first-name)
+   (id :column id :accessor id :db-kind key :db-constraints
+       (not-null) :type integer :initarg id)
+   (last-name :column last_name :accessor last-name :db-constraints
+	      nil :initform nil :type varchar :initarg last-name)
+   (password :column password :accessor password :db-constraints
+	     (not-null) :type (varchar 32) :initarg password)
+   (role-id :column role_id :accessor role-id :db-constraints
+	    (not-null) :type integer :initarg role-id)
+   (role-join :accessor role-join :db-kind join :db-info
+	      (join-class role :home-key role-id :foreign-key id
+			  :set nil))
+   (salt :column salt :accessor salt :db-constraints (not-null) :type
+	 (varchar 4) :initarg salt))
   (base-table users))
 
 </code>

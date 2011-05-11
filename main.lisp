@@ -20,13 +20,14 @@
 
 (defun internup (me &optional (package *db-model-package*))
   (let ((r (intern (string-upcase me) package)))
-    (when *export-symbols*
-      (export r package))
+    (when *export-symbols* (export r package))
     r))
 
 (defun intern-normalize-for-lisp (me &optional (package *db-model-package*))
   "Interns a string after uppercasing and flipping underscores to hyphens"
-  (symbol-munger:underscores->lisp-symbol me package))
+  (let ((r (symbol-munger:underscores->lisp-symbol me package)))
+    (when *export-symbols* (export r package))
+    r))
 
 (defun singular-intern-normalize-for-lisp (me &optional (package *db-model-package*))
   "Interns a string after uppercasing and flipping underscores to hyphens"
