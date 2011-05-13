@@ -15,8 +15,9 @@ notions.  As such this code might only be useful as a jumping off point for crea
 custom clsql ORM.
 
 == ODD Dependencies ==
- * :vana-inflector - currently must use my branch of vana-inflector (the original didn't have an asd file). I have issued a pull request, but until it is merged, it will only work with my copy.  This is used for the singularization option.
-  * https://github.com/bobbysmith007/vana-inflector
+
+* :vana-inflector - currently must use my branch of vana-inflector (the original didn't have an asd file). I have issued a pull request, but until it is merged, it will only work with my copy.  This is used for the singularization option.
+** https://github.com/bobbysmith007/vana-inflector
 
 == Examples ==
 
