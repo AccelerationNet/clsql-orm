@@ -16,6 +16,8 @@ custom clsql ORM.
 
 == Examples ==
 
+'''Please see the examples directory'''
+
 <code>
 (with-a-database (*application*) ;; a private macro that sets up clsql:*default-database* 
   (clsql-orm:gen-view-classes
