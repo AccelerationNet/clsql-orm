@@ -1,7 +1,7 @@
 = CLSQL-ORM =
 Use this package to help with introspective operations against
 databases that support information_schema . It supports generating 
-view-class definitions from the database schema
+view-class definitions from the database schema.
 
 This was originally clsql-postgres-introspect, though this is a bit far removed from that.
 
@@ -13,6 +13,10 @@ This project does not attempt to be a persistence layer. It also makes quite a f
 about what should be generated and with what types that may not match your desires or existing 
 notions.  As such this code might only be useful as a jumping off point for creating your own
 custom clsql ORM.
+
+== ODD Dependencies ==
+ * :vana-inflector - currently must use my branch of vana-inflector (the original didn't have an asd file). I have issued a pull request, but until it is merged, it will only work with my copy.  This is used for the singularization option.
+  * https://github.com/bobbysmith007/vana-inflector
 
 == Examples ==
 
