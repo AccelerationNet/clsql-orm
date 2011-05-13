@@ -22,7 +22,7 @@ custom clsql ORM.
 
 '''Please see the examples directory'''
 
-<code>
+<pre>
 (with-a-database (*application*) ;; a private macro that sets up clsql:*default-database* 
   (clsql-orm:gen-view-classes
    :inherits-from '(pg-db-obj) ;; a class I have that I want all my pg-db-objects to inherit from
@@ -31,9 +31,9 @@ custom clsql ORM.
    '(users user_districts_and_counties titles salaries roles fiscal-years expenses budgets counties
      districts counties-with-districts reports data-entry-finalizations
      specialties bad-state-salary-input races)))
-</code>
+</pre>
 
-<code>
+<pre>
 (clsql-orm:gen-view-classes
    :inherits-from '(pg-db-obj) ;; a class I have that I want all my pg-db-objects to inherit from
    :classes 
@@ -69,7 +69,7 @@ custom clsql ORM.
 	 (varchar 4) :initarg salt))
   (base-table users))
 
-</code>
+</pre>
 
 == Authors of this Branch ==
 
