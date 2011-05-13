@@ -32,6 +32,7 @@ custom clsql ORM.
      districts counties-with-districts reports data-entry-finalizations
      specialties bad-state-salary-input races)))
 </code>
+
 <code>
 (clsql-orm:gen-view-classes
    :inherits-from '(pg-db-obj) ;; a class I have that I want all my pg-db-objects to inherit from
