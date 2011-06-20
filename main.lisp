@@ -34,7 +34,7 @@
   "Interns a string after uppercasing and flipping underscores to hyphens"
   (let ((words (reverse (cl-ppcre:split "-|_" (string me))))
 	(cl-interpol:*list-delimiter* "-"))
-    (setf (first words) (vana-inflector:singular-of (first words)))
+    (setf (first words) (cl-inflector:singular-of (first words)))
     (internup #?"@{ (reverse words) }" package)))
 
 (defun normalize-for-sql (s)
