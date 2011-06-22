@@ -59,6 +59,8 @@
 (defclass column-def ()
   ((column :accessor column :initform nil :initarg :column)
    (db-type :accessor db-type :initform nil :initarg :db-type)
+   (spec-type :accessor spec-type :initform nil :initarg :spec-type
+              :documentation "the original database type rather than its clsql/lisp keyword")
    (col-length :accessor col-length :initform nil :initarg :col-length)
    (is-null :accessor is-null :initform nil :initarg :is-null)
    (default :accessor default :initform nil :initarg :default)
@@ -70,7 +72,8 @@
   (make-instance 'column-def
 		 :column column :db-type db-type :col-length col-length
 		 :is-null is-null :default default :constraints constraints
-		 :fkey-table fkey-table :fkey-col fkey-col))
+		 :fkey-table fkey-table :fkey-col fkey-col
+                 :spec-type db-type))
 
 (defun clsql-column-definitions (table &key
 				  (schema *schema*)
