@@ -62,15 +62,23 @@
    (spec-type :accessor spec-type :initform nil :initarg :spec-type
               :documentation "the original database type rather than its clsql/lisp keyword")
    (col-length :accessor col-length :initform nil :initarg :col-length)
+   (scale :accessor scale :initform nil :initarg :scale)
    (is-null :accessor is-null :initform nil :initarg :is-null)
    (default :accessor default :initform nil :initarg :default)
    (constraints :accessor constraints :initform nil :initarg :constraints)
    (fkey-table :accessor fkey-table :initform nil :initarg :fkey-table)
    (fkey-col :accessor fkey-col :initform nil :initarg :fkey-col)))
 
-(defun column-def (column db-type col-length is-null default constraints fkey-table fkey-col)
+(defmethod print-object ((o column-def) (s stream))
+  "Print the database object, and a couple of the most common identity slots."
+  (print-unreadable-object (o s :type t :identity t)
+    (awhen (ignore-errors (column o))
+      (format s "~a " it))))
+
+(defun column-def (column db-type col-length scale is-null default constraints fkey-table fkey-col)
   (make-instance 'column-def
 		 :column column :db-type db-type :col-length col-length
+                 :scale scale
 		 :is-null is-null :default default :constraints constraints
 		 :fkey-table fkey-table :fkey-col fkey-col
                  :spec-type db-type))
@@ -180,6 +188,7 @@ For that matter, if you wish to have custom names and the like, you'd best defin
 SELECT cols.column_name, cols.data_type,
   COALESCE(cols.character_maximum_length,
   cols.numeric_precision),
+  cols.numeric_scale,
   cols.is_nullable,
   cols.column_default,
   cons.constraint_type,
@@ -214,6 +223,7 @@ SELECT
   cols.column_name, cols.data_type,
   COALESCE(cols.character_maximum_length,
   cols.numeric_precision),
+  cols.numeric_scale,
   cols.is_nullable,
   cols.column_default,
   null as constraint_type,
