@@ -69,6 +69,11 @@
    (fkey-table :accessor fkey-table :initform nil :initarg :fkey-table)
    (fkey-col :accessor fkey-col :initform nil :initarg :fkey-col)))
 
+(defun col= (c1 c2)
+  (and
+   (string-equal (clsql-orm:column c1) (clsql-orm:column c2))
+   (string-equal (clsql-orm:spec-type c1) (clsql-orm:spec-type c2))))
+
 (defmethod print-object ((o column-def) (s stream))
   "Print the database object, and a couple of the most common identity slots."
   (print-unreadable-object (o s :type t :identity t)
@@ -89,7 +94,7 @@
 				  (generate-joins T))
   "For each user column, find out if it's a primary key, constrain it to not null if necessary,
 translate its type, and declare an initarg"
-  (let ((cols (user-columns table schema)))
+  (let ((cols (list-columns table schema)))
     (unless cols
       (error "Could not find any columns for table: ~a in schema: ~a.
 	      Are you sure you correctly spelled the table name?"
@@ -172,7 +177,7 @@ For that matter, if you wish to have custom names and the like, you'd best defin
       (error (c)
 	(warn "Error querying about IDENTITY ~a" c)))))
 
-(defun user-columns ( table &optional (schema *schema*))
+(defun list-columns ( table &optional (schema *schema*))
   "Returns a list of
    #(column type length is-null default (key-types) fkey-table fkey-col)
    for the user columns of table.
@@ -299,6 +304,16 @@ ORDER BY cols.column_name, cols.data_type
     :from [information_schema.tables]
     :flatp T
     :where [= [UPPER [table_schema]] (string-upcase schema)]))
+
+(defun column-diff (table-1 table-2 &key (schema-1 *schema*) (schema-2 *schema*))
+  (let ((cols1 (list-columns table-1 schema-1))
+        (cols2 (list-columns table-2 schema-2)))
+    (list
+     (iter (for c in cols1)
+       (unless (find c cols2 :test #'col=) (collect c)))
+     (iter (for c in cols2)
+       (unless (find c cols1 :test #'col=) (collect c))))
+    ))
 
 (defun gen-view-class (table &key classname
 			     (is-view nil)

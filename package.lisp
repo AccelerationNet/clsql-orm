@@ -9,6 +9,15 @@
 	   :unique-p
 	   :primary-key-p
 	   :clsql-type-for-pg-type
-	   :user-columns)
+	   :list-columns
+           :column-def
+           :column
+           :db-type
+           :spec-type
+           :is-null
+           :scale
+           :col-length
+           :col=
+           :column-diff)
   (:documentation "This package provides methods to introspect a database
 Providing features such as generating a CLSQL class based on a table name"))
