@@ -7,4 +7,4 @@
    :serial t
    :components ((:file "package")
                 (:file "main")
-                (:file "clsql3")))
+                (:file "sqlite3")))
