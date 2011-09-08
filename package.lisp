@@ -2,14 +2,14 @@
   (:use :cl :clsql :iterate)
   (:shadow #:list-tables )
   (:export :gen-view-class
-	   :gen-view-classes
-	   :gen-view-classes-for-database
-	   :list-foreign-constraints
-	   :not-null-p
-	   :unique-p
-	   :primary-key-p
-	   :clsql-type-for-pg-type
-	   :list-columns
+           :gen-view-classes
+           :gen-view-classes-for-database
+           :list-foreign-constraints
+           :not-null-p
+           :unique-p
+           :primary-key-p
+           :clsql-type-for-pg-type
+           :list-columns
            :column-def
            :column
            :db-type
