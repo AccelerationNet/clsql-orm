@@ -5,5 +5,7 @@
    :depends-on (:clsql :cl-ppcre :cl-interpol :cl-inflector :symbol-munger)
    :version "0.2"
    :components
+  :serial T
    ((:file "package")
-    (:file "main" :depends-on ("package"))))
+    (:file "main")
+    (:file "sqlite3")))

@@ -177,7 +177,12 @@ For that matter, if you wish to have custom names and the like, you'd best defin
       (error (c)
 	(warn "Error querying about IDENTITY ~a" c)))))
 
-(defun list-columns ( table &optional (schema *schema*))
+(defun list-columns (table &optional (schema *schema*))
+  (case (clsql-sys::database-underlying-type clsql-sys:*default-database*)
+    (:sqlite3 (sqlite3-list-columns table schema))
+    (T (default-list-columns table schema))))
+
+(defun default-list-columns ( table &optional (schema *schema*))
   "Returns a list of
    #(column type length is-null default (key-types) fkey-table fkey-col)
    for the user columns of table.
@@ -272,38 +277,41 @@ ORDER BY cols.column_name, cols.data_type
   "Given a postgres type and a modifier, return the clsql type"
   (declare (type symbol db-type)
 	   (type (or integer null) len))
-    (ecase db-type
-      ((:smallint :tinyint :bigint :int :int2 :int4 :int8 :integer)
-	 'integer)
-      ((:float :float2 :float4 :float8 :double-precision)
-	 'double-float)
-      ((:text :ntext :longtext) 'varchar)
-      ((:char :bpchar :varchar :nvarchar :character-varying :character)
-	 (if len `(varchar ,len) 'varchar))
-      ((:numeric :decimal :money)
-	 'number)
-      ((:datetime
-	:timestamptz
-	:timestamp
-	:timestamp-with-time-zone
-	:timestamp-without-time-zone)
-	 'clsql-sys::wall-time)
-      ((:date :smalldatetime)
-	 'date)
-      (:interval 'duration)
-      (:uniqueidentifier 'number)
-      ((:bool :boolean :bit) 'boolean)
-      ((:inet :cidr) '(varchar 43))	; 19 for IPv4, 43 for IPv6
-      (:macaddr '(varchar 17))
-      (:image '(vector (unsigned-byte 8)))
-      ))
+  (ecase db-type
+    ((:smallint :tinyint :bigint :int :int2 :int4 :int8 :integer)
+     'integer)
+    ((:float :float2 :float4 :float8 :double-precision)
+     'double-float)
+    ((:text :ntext :longtext) 'varchar)
+    ((:char :bpchar :varchar :nvarchar :character-varying :character :string)
+     (if len `(varchar ,len) 'varchar))
+    ((:numeric :decimal :money)
+     'number)
+    ((:datetime
+      :timestamptz
+      :timestamp
+      :timestamp-with-time-zone
+      :timestamp-without-time-zone)
+     'clsql-sys::wall-time)
+    ((:date :smalldatetime)
+     'date)
+    (:interval 'duration)
+    (:uniqueidentifier 'number)
+    ((:bool :boolean :bit) 'boolean)
+    ((:inet :cidr) '(varchar 43))	; 19 for IPv4, 43 for IPv6
+    (:macaddr '(varchar 17))
+    (:image '(vector (unsigned-byte 8)))
+    ))
 
 
 (defun list-tables (&optional (schema *schema*))
-  (clsql:select [table_name] [table_type]
-    :from [information_schema.tables]
-    :flatp T
-    :where [= [UPPER [table_schema]] (string-upcase schema)]))
+  (case (clsql-sys::database-underlying-type clsql-sys:*default-database*)
+    (:sqlite3 (sqlite3-list-tables :schema schema))
+    (T
+     (clsql:select [table_name] [table_type]
+                   :from [information_schema.tables]
+                   :flatp T
+                   :where [= [UPPER [table_schema]] (string-upcase schema)]))))
 
 (defun column-diff (table-1 table-2 &key (schema-1 *schema*) (schema-2 *schema*))
   (let ((cols1 (list-columns table-1 schema-1))
