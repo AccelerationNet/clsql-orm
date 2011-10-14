@@ -97,7 +97,8 @@ translate its type, and declare an initarg"
   (let ((cols (list-columns table schema)))
     (unless cols
       (error "Could not find any columns for table: ~a in schema: ~a.
-              Are you sure you correctly spelled the table name?"
+              Are you sure you correctly spelled the table name?
+              Are you sure you sure this database connection has access to the table?"
              table schema))
     (iter (for col in cols)
       (with-accessors ((column column) (db-type db-type) (col-length col-length)
