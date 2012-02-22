@@ -287,6 +287,8 @@ ORDER BY cols.column_name, cols.data_type
     ((:float :float2 :float4 :float8 :double-precision)
      'double-float)
     ((:text :ntext :longtext) 'varchar)
+    ;; weird Postgresql types
+    ((:point :user-defined) 'varchar)
     ((:char :bpchar :varchar :nvarchar :character-varying :character :string)
      (if len `(varchar ,len) 'varchar))
     ((:numeric :decimal :money)
