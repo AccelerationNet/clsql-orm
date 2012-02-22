@@ -107,6 +107,7 @@ translate its type, and declare an initarg"
         (when (and is-null default)
           (warn "CLSQL-ORM: The column ~a.~a.~a should not be null and have a default value (~a)"
                 schema table column default))
+        ;; TODO: add a "skip column" and "use explict type" restart
         (collect `(,(intern-normalize-for-lisp column)
                    :column ,column
                    ,@(when generate-accessors
@@ -273,6 +274,8 @@ ORDER BY cols.column_name, cols.data_type
            (setf (fkey-table prev-row) it))
          (awhen (fkey-col row)
            (setf (fkey-col prev-row) it)))))))
+
+;; TODO: add condition for don't know how to convert db type
 
 (defun clsql-type-for-db-type (db-type len)
   "Given a postgres type and a modifier, return the clsql type"
