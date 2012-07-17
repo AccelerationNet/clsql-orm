@@ -374,8 +374,27 @@ naming conventions, it's best to define a class that inherits from your generate
                          `((:metaclass ,metaclass))))))
       (eval form)))))
 
+(defun %tables-to-generate (classes excludes schema)
+  (setf excludes (mapcar #'princ-to-string (ensure-list excludes)))
+  (flet ((exclude? (item)
+           (destructuring-bind (table type) item
+             (declare (ignore type))
+             (member table excludes :test #'string-equal))))
+    (if classes
+        (iter (for class in classes)
+          ;; building (table-name type) where type is VIEW or TABLE
+          (for c = (typecase class
+                     (list (normalize-for-sql (first class))
+                      (second class))
+                     (symbol (list (normalize-for-sql class) nil))
+                     (string (list class nil))))
+          (unless (exclude? c) (collect c)))
+        (iter (for pair in (list-tables schema))
+          (unless (exclude? pair) (collect pair))))))
+
 (defun gen-view-classes (&key
                          (classes)
+                         (excludes)
                          (generate-joins t)
                          (generate-accessors t)
                          (schema "public")
@@ -391,15 +410,7 @@ naming conventions, it's best to define a class that inherits from your generate
    This function will operate on the default clsql database
   "
   (unless view-inherits-from (setf view-inherits-from inherits-from))
-  (setf classes
-        (if classes
-            (iter (for class in classes)
-                  (collect (typecase class
-                             (list (normalize-for-sql (first class))
-                                (second class))
-                             (symbol (list (normalize-for-sql class) nil))
-                             (string (list class nil)))))
-            (list-tables schema)))
+  (setf classes (%tables-to-generate classes excludes schema))
   (iter (for (table type) in classes)
         (gen-view-class
          table
