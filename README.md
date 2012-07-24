@@ -1,4 +1,4 @@
-= CLSQL-ORM =
+# CLSQL-ORM #
 Use this package to help with introspective operations against
 databases that support information_schema . It supports generating 
 view-class definitions from the database schema.
@@ -14,12 +14,12 @@ about what should be generated and with what types that may not match your desir
 notions.  As such this code might only be useful as a jumping off point for creating your own
 custom clsql ORM.
 
-== Examples ==
+## Examples ##
 
-'''Please see the examples directory'''
+**Please see the examples directory**
 
-<pre>
-(with-a-database (*application*) ;; a private macro that sets up clsql:*default-database* 
+```
+(with-a-database (*application*) ;; a clsql-helper macro that sets up clsql:*default-database* 
   (clsql-orm:gen-view-classes
    :inherits-from '(pg-db-obj) ;; a class I have that I want all my pg-db-objects to inherit from
    :classes 
@@ -27,9 +27,9 @@ custom clsql ORM.
    '(users user_districts_and_counties titles salaries roles fiscal-years expenses budgets counties
      districts counties-with-districts reports data-entry-finalizations
      specialties bad-state-salary-input races)))
-</pre>
+```
 
-<pre>
+```
 (clsql-orm:gen-view-classes
    :inherits-from '(pg-db-obj) ;; a class I have that I want all my pg-db-objects to inherit from
    :classes 
@@ -65,19 +65,18 @@ custom clsql ORM.
 	 (varchar 4) :initarg salt))
   (base-table users))
 
-</pre>
+```
 
-== Authors of this Branch ==
+## Authors of this Branch ##
 
 * [http://www.acceleration.net/ Acceleration.net] - [http://www.acceleration.net/programming/donate-to-acceleration-net/ Donate]
 ** [http://russ.unwashedmeme.com/blog Russ Tyndall]
 ** [http://the.unwashedmeme.com/blog Nathan Bird]
 ** [http://ryepup.unwashedmeme.com/blog Ryan Davis]
 
-== Original Author information ==
+## Original Author information ##
 
-Alan Shields<br />
-Alan-Shields@omrf.ouhsc.edu<br />
+Alan Shields <Alan-Shields@omrf.ouhsc.edu>
 
 This work was made possible by the Centola Lab of the Oklahoma Medical Research Foundation
 
