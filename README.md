@@ -69,10 +69,10 @@ custom clsql ORM.
 
 ## Authors of this Branch ##
 
-* [http://www.acceleration.net/ Acceleration.net] - [http://www.acceleration.net/programming/donate-to-acceleration-net/ Donate]
-** [http://russ.unwashedmeme.com/blog Russ Tyndall]
-** [http://the.unwashedmeme.com/blog Nathan Bird]
-** [http://ryepup.unwashedmeme.com/blog Ryan Davis]
+* [Acceleration.net] (http://www.acceleration.net/)
+ * [Russ Tyndall](http://russ.unwashedmeme.com/blog)
+ * [Nathan Bird](http://the.unwashedmeme.com/blog)
+ * [Ryan Davis](http://ryepup.unwashedmeme.com/blog)
 
 ## Original Author information ##
 
