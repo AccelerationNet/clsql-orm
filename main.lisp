@@ -57,7 +57,8 @@
         default-sym)))
 
 (defclass column-def ()
-  ((column :accessor column :initform nil :initarg :column)
+  ((table :accessor table :initarg :table :initform nil)
+   (column :accessor column :initform nil :initarg :column)
    (db-type :accessor db-type :initform nil :initarg :db-type)
    (spec-type :accessor spec-type :initform nil :initarg :spec-type
               :documentation "the original database type rather than its clsql/lisp keyword")
@@ -71,17 +72,18 @@
 
 (defun col= (c1 c2)
   (and
+   (string-equal (clsql-orm::table c1) (clsql-orm::table c2))
    (string-equal (clsql-orm:column c1) (clsql-orm:column c2))
    (string-equal (clsql-orm:spec-type c1) (clsql-orm:spec-type c2))))
 
 (defmethod print-object ((o column-def) (s stream))
   "Print the database object, and a couple of the most common identity slots."
   (print-unreadable-object (o s :type t :identity t)
-    (awhen (ignore-errors (column o))
-      (format s "~a " it))))
+    (format s "~a.~A" (ignore-errors (table o)) (ignore-errors (column o)))))
 
-(defun column-def (column db-type col-length scale is-null default constraints fkey-table fkey-col)
+(defun column-def (table column db-type col-length scale is-null default constraints fkey-table fkey-col)
   (make-instance 'column-def
+                 :table table
                  :column column :db-type db-type :col-length col-length
                  :scale scale
                  :is-null is-null :default default :constraints constraints
@@ -164,6 +166,28 @@ For that matter, if you wish to have custom names and the like, you'd best defin
                                         ;         '(:set t))
                 ))))
 
+(defun clsql-reverse-join-definition (foreign-table home-key foreign-key
+                                      &key (generate-accessors t))
+  (let ((varname (clsql-orm::intern-normalize-for-lisp
+                  (list foreign-table foreign-key 'join))))
+    `(,varname
+      ,@(when generate-accessors
+          `(:accessor ,varname))
+      :db-kind :join
+      :db-info (:join-class ,(if *singularize*
+                                 (singular-intern-normalize-for-lisp foreign-table)
+                                 (intern-normalize-for-lisp foreign-table))
+                :home-key ,(intern-normalize-for-lisp home-key)
+                :foreign-key ,(intern-normalize-for-lisp foreign-key)
+                :set t
+                ))))
+
+(defun clsql-reverse-join-definitions ( table )
+  (let ((columns (list-reverse-join-columns table )))
+    (iter (for c in columns)
+      (collect (clsql-reverse-join-definition
+                (table c) (fkey-col c) (column c))))))
+
 ;;;;; External-ish functions
 
 (defun identity-column-p (table column)
@@ -182,9 +206,13 @@ For that matter, if you wish to have custom names and the like, you'd best defin
 (defun list-columns (table &optional (schema *schema*))
   (case (clsql-sys::database-underlying-type clsql-sys:*default-database*)
     (:sqlite3 (sqlite3-list-columns table schema))
-    (T (default-list-columns table schema))))
+    (T (default-list-columns table :schema schema))))
 
-(defun default-list-columns ( table &optional (schema *schema*))
+(defun list-reverse-join-columns (table &key (schema *schema*))
+  (default-list-columns table :schema schema :reverse-joins? t))
+
+(defun default-list-columns ( table &key (schema *schema*) (reverse-joins? nil)
+                              &aux where order)
   "Returns a list of
    #(column type length is-null default (key-types) fkey-table fkey-col)
    for the user columns of table.
@@ -195,9 +223,19 @@ For that matter, if you wish to have custom names and the like, you'd best defin
 
   (setf table (clsql-sys:sql-escape-quotes (normalize-for-sql table)))
   (setf schema (clsql-sys:sql-escape-quotes (normalize-for-sql schema)))
+  (setf where
+        (if reverse-joins?
+            #?"fkey.table_name = '${table}'"
+            #?"cols.table_schema ='${schema}' AND cols.table_name ='${table}'"))
+  (setf order
+        (if reverse-joins?
+            #?"fkey.table_name, fkey.column_name"
+            #?"cols.table_name, cols.column_name, cols.data_type"))
 
   (let* ((sql #?"
-SELECT cols.column_name, cols.data_type,
+SELECT
+  cols.table_name,
+  cols.column_name, cols.data_type,
   COALESCE(cols.character_maximum_length,
   cols.numeric_precision),
   cols.numeric_scale,
@@ -224,14 +262,14 @@ LEFT JOIN information_schema.key_column_usage as fkey
   ON fkey.constraint_schema = refs.unique_constraint_schema
   AND fkey.constraint_name = refs.unique_constraint_name
 
-WHERE cols.table_schema ='${schema}'
- AND cols.table_name ='${table}'
+WHERE ${where}
 
-ORDER BY cols.column_name, cols.data_type
+ORDER BY ${order}
 ")
          (lesser-sql #?"
 SELECT
   DISTINCT 
+  cols.table_name,
   cols.column_name, cols.data_type,
   COALESCE(cols.character_maximum_length,
   cols.numeric_precision),
@@ -248,19 +286,21 @@ LEFT JOIN information_schema.key_column_usage as keycols
   AND keycols.table_name = cols.table_name
   AND keycols.table_schema = cols.table_schema
 
-WHERE cols.table_schema = '${schema}' AND cols.table_name ='${table}'
-ORDER BY cols.column_name, cols.data_type
+WHERE ${where}
+ORDER BY ${order}
 ")
-         (results (or (ignore-errors (clsql:query sql :flatp T))
-                      (clsql:query lesser-sql :flatp T))))
+         (results (or (clsql:query sql :flatp T)
+                      (and (not reverse-joins?)
+                           (clsql:query lesser-sql :flatp T)))))
                                         ;(print results)
-
     (iter
       (with prev-row)
       (for l-row in results)
       (for row = (apply #'column-def l-row))
       (cond
-        ((not (and prev-row (string-equal (column row) (column prev-row))))
+        ((not (and prev-row
+                   (string-equal (table row) (table prev-row))
+                   (string-equal (column row) (column prev-row))))
          (setf (db-type row) (symbol-munger:english->keyword (db-type row)))
          (setf (is-null row) (string-equal (is-null row) "YES"))
          (setf (constraints row) (list (symbol-munger:english->keyword (constraints row))))
@@ -274,6 +314,7 @@ ORDER BY cols.column_name, cols.data_type
            (setf (fkey-table prev-row) it))
          (awhen (fkey-col row)
            (setf (fkey-col prev-row) it)))))))
+
 
 ;; TODO: add condition for don't know how to convert db type
 
@@ -331,18 +372,20 @@ ORDER BY cols.column_name, cols.data_type
     ))
 
 (defun gen-view-class (table &key classname
-                             (is-view nil)
-                             (generate-joins t)
-                             (generate-accessors t)
-                             (inherits-from ())
-                             (view-inherits-from ())
-                             (package *package*)
-                             (nicknames ())
-                             (singularize T)
-                             (schema "public")
-                             (metaclass ())
-                             (slots ())
-                             (export-symbols ()))
+                        (is-view nil)
+                        (generate-joins t)
+                        (generate-reverse-joins t)
+                        (generate-accessors t)
+                        (inherits-from ())
+                        (view-inherits-from ())
+                        (package *package*)
+                        (nicknames ())
+                        (singularize T)
+                        (schema "public")
+                        (metaclass ())
+                        (slots ())
+                        (export-symbols ())
+                        (print? nil))
   "Generate a view class for clsql, given a table
 If you want to name the class differently from the table, use the :classname keyword.
 If you do not want to generate join information for the class, do :generate-joins nil
@@ -366,12 +409,15 @@ naming conventions, it's best to define a class that inherits from your generate
            (columns (clsql-column-definitions
                      table
                      :generate-accessors generate-accessors
-                     :generate-joins generate-joins)))
+                     :generate-joins generate-joins))
+           (reverse-joins (when generate-reverse-joins
+                            (clsql-reverse-join-definitions table))))
       (let ((form `(clsql:def-view-class ,class (,@(if is-view view-inherits-from inherits-from))
-                     ,(append columns slots)
+                     ,(append columns reverse-joins slots)
                      (:base-table ,table)
                      ,@(when metaclass
                          `((:metaclass ,metaclass))))))
+        (when print? (format *trace-output* "~%~s~%" form))
       (eval form)))))
 
 (defun %tables-to-generate (classes excludes schema)
@@ -396,6 +442,7 @@ naming conventions, it's best to define a class that inherits from your generate
                          (classes)
                          (excludes)
                          (generate-joins t)
+                         (generate-reverse-joins t)
                          (generate-accessors t)
                          (schema "public")
                          (package *package*)
@@ -415,6 +462,7 @@ naming conventions, it's best to define a class that inherits from your generate
         (gen-view-class
          table
          :generate-joins generate-joins
+         :generate-reverse-joins generate-reverse-joins
          :is-view (string-equal type "VIEW")
          :view-inherits-from view-inherits-from
          :inherits-from inherits-from
