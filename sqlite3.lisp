@@ -19,7 +19,7 @@
                     db-type (intern-normalize-for-lisp
                              (if paren-idx (subseq type 0 paren-idx) type)
                              :keyword))
-              (column-def column-name db-type
+              (column-def table column-name db-type
                           nil
                           nil
                           (= is-null? 0)
