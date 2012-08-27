@@ -76,7 +76,7 @@
    (string-equal (clsql-orm:column c1) (clsql-orm:column c2))
    (string-equal (clsql-orm:spec-type c1) (clsql-orm:spec-type c2))))
 
-(defmethod print-object ((o column-def) (s stream))
+(defmethod print-object ((o column-def) s)
   "Print the database object, and a couple of the most common identity slots."
   (print-unreadable-object (o s :type t :identity t)
     (format s "~a.~A" (ignore-errors (table o)) (ignore-errors (column o)))))
