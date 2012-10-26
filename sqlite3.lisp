@@ -10,21 +10,24 @@
    (mapcar (lambda (name) (list name "VIEW"))
            (clsql-sys:list-views :owner owner :database clsql-sys:*default-database*))))
 
+(defun sqlite3-column-def (table column-name type is-null? default pk?)
+  (let ((db-type (let ((idx (position #\( type)))
+                   (intern-normalize-for-lisp
+                    (if idx (subseq type 0 idx) type)
+                    :keyword))))
+    (make-instance 'column-def
+                   :schema *schema*
+                   :table table
+                   :column column-name
+                   :default default
+                   :db-type db-type
+                   :is-null (eql is-null? 0)
+                   :constraints (when (= pk? 1) (list :primary-key))
+                   :spec-type db-type)))
+
 (defun sqlite3-list-columns (table &optional (schema *schema*))
   (declare (ignore schema))
-  (mapcar (lambda (col &aux paren-idx db-type)
-            (destructuring-bind (column-name type is-null? default pk?)
-                (cdr col)
-              (setf paren-idx (position #\( type)
-                    db-type (intern-normalize-for-lisp
-                             (if paren-idx (subseq type 0 paren-idx) type)
-                             :keyword))
-              (column-def table column-name db-type
-                          nil
-                          nil
-                          (= is-null? 0)
-                          default
-                          (list (when (= pk? 1) :primary-key))
-                          nil
-                          nil)))
-          (clsql:query #?"PRAGMA table_info(${table});")))
+  (iter
+    (for col in (clsql:query #?"PRAGMA table_info(${table});"))
+    ;; (for (col-idx column-name type is-null? default pk?) = col)
+    (collect (apply #'sqlite3-column-def table (cdr col)))))
