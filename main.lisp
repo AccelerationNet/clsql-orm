@@ -81,7 +81,7 @@
 (defmethod print-object ((o column-def) s)
   "Print the database object, and a couple of the most common identity slots."
   (print-unreadable-object (o s :type t :identity t)
-    (format s "~a.~a.~A"
+    (format s "~@[~a.~]~a.~A"
             (ignore-errors (schema o))
             (ignore-errors (table o))
             (ignore-errors (column o)))))

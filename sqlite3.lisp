@@ -4,11 +4,12 @@
 
 (defun sqlite3-list-tables (&key (schema *schema*) (owner nil))
   (declare (ignore schema))
-  (append
-   (mapcar (lambda (name) (list name "TABLE"))
-           (clsql-sys:list-tables :owner owner :database clsql-sys:*default-database*))
-   (mapcar (lambda (name) (list name "VIEW"))
-           (clsql-sys:list-views :owner owner :database clsql-sys:*default-database*))))
+  (iter top
+    (for (type names) in
+         `(("TABLE" ,(clsql-sys:list-tables :owner owner :database clsql-sys:*default-database*))
+           ("VIEW" ,(clsql-sys:list-views :owner owner :database clsql-sys:*default-database*))))
+    (iter (for i in names)
+      (in top (collect (list i type))))))
 
 (defun sqlite3-column-def (table column-name type is-null? default pk?)
   (let ((db-type (let ((idx (position #\( type)))
