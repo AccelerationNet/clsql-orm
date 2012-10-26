@@ -57,7 +57,8 @@
         default-sym)))
 
 (defclass column-def ()
-  ((table :accessor table :initarg :table :initform nil)
+  ((schema :accessor schema :initarg :schema :initform *schema*)
+   (table :accessor table :initarg :table :initform nil)
    (column :accessor column :initform nil :initarg :column)
    (db-type :accessor db-type :initform nil :initarg :db-type)
    (spec-type :accessor spec-type :initform nil :initarg :spec-type
@@ -67,6 +68,7 @@
    (is-null :accessor is-null :initform nil :initarg :is-null)
    (default :accessor default :initform nil :initarg :default)
    (constraints :accessor constraints :initform nil :initarg :constraints)
+   (fkey-schema :accessor fkey-schema :initform nil :initarg :fkey-schema)
    (fkey-table :accessor fkey-table :initform nil :initarg :fkey-table)
    (fkey-col :accessor fkey-col :initform nil :initarg :fkey-col)))
 
@@ -79,15 +81,21 @@
 (defmethod print-object ((o column-def) s)
   "Print the database object, and a couple of the most common identity slots."
   (print-unreadable-object (o s :type t :identity t)
-    (format s "~a.~A" (ignore-errors (table o)) (ignore-errors (column o)))))
+    (format s "~a.~a.~A"
+            (ignore-errors (schema o))
+            (ignore-errors (table o))
+            (ignore-errors (column o)))))
 
-(defun column-def (table column db-type col-length scale is-null default constraints fkey-table fkey-col)
+(defun column-def (schema table column db-type col-length
+                   scale is-null default constraints
+                   fkey-schema fkey-table fkey-col)
   (make-instance 'column-def
+                 :schema schema
                  :table table
                  :column column :db-type db-type :col-length col-length
                  :scale scale
                  :is-null is-null :default default :constraints constraints
-                 :fkey-table fkey-table :fkey-col fkey-col
+                 :fkey-schema fkey-schema :fkey-table fkey-table :fkey-col fkey-col
                  :spec-type db-type))
 
 (defun clsql-column-definitions (table &key
@@ -166,10 +174,17 @@ For that matter, if you wish to have custom names and the like, you'd best defin
                                         ;         '(:set t))
                 ))))
 
-(defun clsql-reverse-join-definition (foreign-table home-key foreign-key
+(defun clsql-reverse-join-definition (column-def
                                       &key (generate-accessors t))
-  (let ((varname (clsql-orm::intern-normalize-for-lisp
-                  (list foreign-table foreign-key 'join))))
+  (let* ((include-schema? (not (string-equal (schema column-def)
+                                             (fkey-schema column-def))))
+         (foreign-table (table column-def))
+         (home-key (fkey-col column-def))
+         (foreign-key (column column-def))
+         (varname (clsql-orm::intern-normalize-for-lisp
+                   (list
+                    (when include-schema? (schema column-def))
+                    foreign-table foreign-key 'join))))
     `(,varname
       ,@(when generate-accessors
           `(:accessor ,varname))
@@ -182,11 +197,11 @@ For that matter, if you wish to have custom names and the like, you'd best defin
                 :set t
                 ))))
 
-(defun clsql-reverse-join-definitions ( table )
-  (let ((columns (list-reverse-join-columns table )))
+(defun clsql-reverse-join-definitions ( table &key (schema *schema*))
+  (let ((columns (list-reverse-join-columns table :schema schema)))
     (iter (for c in columns)
       (collect (clsql-reverse-join-definition
-                (table c) (fkey-col c) (column c))))))
+                c)))))
 
 ;;;;; External-ish functions
 
@@ -225,7 +240,7 @@ For that matter, if you wish to have custom names and the like, you'd best defin
   (setf schema (clsql-sys:sql-escape-quotes (normalize-for-sql schema)))
   (setf where
         (if reverse-joins?
-            #?"fkey.table_name = '${table}'"
+            #?"fkey.table_name = '${table}' and fkey.table_schema= '${schema}'"
             #?"cols.table_schema ='${schema}' AND cols.table_name ='${table}'"))
   (setf order
         (if reverse-joins?
@@ -234,6 +249,7 @@ For that matter, if you wish to have custom names and the like, you'd best defin
 
   (let* ((sql #?"
 SELECT
+  cols.table_schema,
   cols.table_name,
   cols.column_name, cols.data_type,
   COALESCE(cols.character_maximum_length,
@@ -242,6 +258,7 @@ SELECT
   cols.is_nullable,
   cols.column_default,
   cons.constraint_type,
+  fkey.table_schema,
   fkey.table_name,
   fkey.column_name
 
