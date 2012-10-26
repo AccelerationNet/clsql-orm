@@ -6,9 +6,8 @@
 
 (in-package :clsql-orm.system)
 
-; For those who like that sort of thing: an ASDF package
 (defsystem clsql-orm
-  :depends-on (:clsql :cl-ppcre :cl-interpol :cl-inflector :symbol-munger)
+  :depends-on (:clsql :cl-ppcre :cl-interpol :cl-inflector :symbol-munger :iterate)
   :version "0.2"
   :serial T
   :components ((:file "package")
