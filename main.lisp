@@ -413,36 +413,37 @@ The join slots/accessors will be named [home key]-[target table]. If you want to
 naming conventions, it's best to define a class that inherits from your generated class."
   (declare (type (or symbol string) table))
   (unless view-inherits-from (setf view-inherits-from inherits-from))
-  (ensure-strings (table schema)
-    (let* ((*schema* schema)
-           (*export-symbols* export-symbols)
-           (*singularize* singularize)
-           (*db-model-package* (or (find-package package)
-                                   (make-package package :nicknames (ensure-list nicknames) :use ())))
-           (class (or classname
-                      (and singularize
-                           (singular-intern-normalize-for-lisp table))
-                      (intern-normalize-for-lisp table)))
-           (columns (clsql-column-definitions
-                     table
-                     :generate-accessors generate-accessors
-                     :generate-joins generate-joins))
-           (reverse-joins (when generate-reverse-joins
-                            (clsql-reverse-join-definitions table))))
-      (let ((form `(clsql:def-view-class ,class (,@(if is-view view-inherits-from inherits-from))
-                     ,(append columns reverse-joins slots)
-                     (:base-table ,table)
-                     ,@(when metaclass
-                         `((:metaclass ,metaclass))))))
-        (when print? (format *trace-output* "~%~s~%" form))
-      (eval form)))))
+  (restart-case
+      (ensure-strings (table schema)
+        (let* ((*schema* schema)
+               (*export-symbols* export-symbols)
+               (*singularize* singularize)
+               (*db-model-package* (or (find-package package)
+                                       (make-package package :nicknames (ensure-list nicknames) :use ())))
+               (class (or classname
+                          (and singularize
+                               (singular-intern-normalize-for-lisp table))
+                          (intern-normalize-for-lisp table)))
+               (columns (clsql-column-definitions
+                         table
+                         :generate-accessors generate-accessors
+                         :generate-joins generate-joins))
+               (reverse-joins (when generate-reverse-joins
+                                (clsql-reverse-join-definitions table))))
+          (let ((form `(clsql:def-view-class ,class (,@(if is-view view-inherits-from inherits-from))
+                        ,(append columns reverse-joins slots)
+                        (:base-table ,table)
+                        ,@(when metaclass
+                            `((:metaclass ,metaclass))))))
+            (when print? (format *trace-output* "~%~s~%" form))
+            (eval form))))
+    (skip-view-class ()
+      :report (lambda (str) (format str "Skip generating class for table ~a" table)))))
 
 (defun %tables-to-generate (classes excludes schema)
   (setf excludes (mapcar #'princ-to-string (ensure-list excludes)))
-  (flet ((exclude? (item)
-           (destructuring-bind (table type) item
-             (declare (ignore type))
-             (member table excludes :test #'string-equal))))
+  (flet ((exclude? (table)
+           (member table excludes :test #'string-equal)))
     (if classes
         (iter (for class in classes)
           ;; building (table-name type) where type is VIEW or TABLE
@@ -451,9 +452,10 @@ naming conventions, it's best to define a class that inherits from your generate
                       (second class))
                      (symbol (list (normalize-for-sql class) nil))
                      (string (list class nil))))
-          (unless (exclude? c) (collect c)))
+          (unless (exclude? (first c)) (collect c)))
         (iter (for pair in (list-tables schema))
-          (unless (exclude? pair) (collect pair))))))
+          (unless (exclude? (first pair))
+            (collect pair))))))
 
 (defun gen-view-classes (&key
                          (classes)
