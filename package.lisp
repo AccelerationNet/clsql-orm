@@ -18,6 +18,7 @@
    :scale
    :col-length
    :col=
+   :column-name=
    :column-diff)
   (:documentation "This package provides methods to introspect a database
 Providing features such as generating a CLSQL class based on a table name"))

@@ -50,6 +50,10 @@
                                   :case-insensitive-mode T)
                                  colname "\\1-JOIN"))))
 
+(defun type-of-db ()
+  "Returns the underlying db type for the dynamic connection"
+  (clsql-sys::database-underlying-type clsql-sys:*default-database*))
+
 (defun accessor-name-for-column (table column)
   (let ((default-sym (intern-normalize-for-lisp column)))
     (if (eql (symbol-package default-sym) (find-package :cl))
@@ -73,10 +77,16 @@
    (fkey-col :accessor fkey-col :initform nil :initarg :fkey-col)))
 
 (defun col= (c1 c2)
-  (and
-   (string-equal (clsql-orm::table c1) (clsql-orm::table c2))
-   (string-equal (clsql-orm:column c1) (clsql-orm:column c2))
-   (string-equal (clsql-orm:spec-type c1) (clsql-orm:spec-type c2))))
+  (and (typep c1 'column-def) (typep c2 'column-def)
+       (string-equal (clsql-orm::table c1) (clsql-orm::table c2))
+       (string-equal (clsql-orm:column c1) (clsql-orm:column c2))
+       (string-equal (clsql-orm:spec-type c1) (clsql-orm:spec-type c2))))
+
+(defun column-name= (c1 c2)
+  (and (typep c1 'column-def) (typep c2 'column-def)
+       (string-equal (schema c1) (schema c2))
+       (string-equal (table c1) (table c2))
+       (string-equal (column c1) (column c2))))
 
 (defmethod print-object ((o column-def) s)
   "Print the database object, and a couple of the most common identity slots."
@@ -219,25 +229,14 @@ For that matter, if you wish to have custom names and the like, you'd best defin
         (warn "Error querying about IDENTITY ~a" c)))))
 
 (defun list-columns (table &optional (schema *schema*))
-  (case (clsql-sys::database-underlying-type clsql-sys:*default-database*)
+  (case (type-of-db)
     (:sqlite3 (sqlite3-list-columns table schema))
     (T (default-list-columns table :schema schema))))
 
 (defun list-reverse-join-columns (table &key (schema *schema*))
   (default-list-columns table :schema schema :reverse-joins? t))
 
-(defun default-list-columns ( table &key (schema *schema*) (reverse-joins? nil)
-                              &aux where order)
-  "Returns a list of
-   #(column type length is-null default (key-types) fkey-table fkey-col)
-   for the user columns of table.
-   Do not confuse a table with the clsql class of a table - this needs the actual table name.
-   User columns are those columns which the user defines. Others are defined for various reasons. OID is often
-   one of these."
-  (declare (type (or string symbol) table))
-
-  (setf table (clsql-sys:sql-escape-quotes (normalize-for-sql table)))
-  (setf schema (clsql-sys:sql-escape-quotes (normalize-for-sql schema)))
+(defun default-list-columns-sql (schema table reverse-joins? &aux where order)
   (setf where
         (if reverse-joins?
             #?"fkey.table_name = '${table}' and fkey.table_schema= '${schema}'"
@@ -246,8 +245,7 @@ For that matter, if you wish to have custom names and the like, you'd best defin
         (if reverse-joins?
             #?"fkey.table_name, fkey.column_name"
             #?"cols.table_name, cols.column_name, cols.data_type"))
-
-  (let* ((sql #?"
+  #?"
 SELECT
   cols.table_schema,
   cols.table_name,
@@ -283,9 +281,13 @@ WHERE ${where}
 
 ORDER BY ${order}
 ")
-         (lesser-sql #?"
+
+(defun default-list-columns-lesser-sql (schema table)
+  "A fallback sql for databases whose information_schema is
+   lacking (previously mysql, but perhaps others)"
+  #?"
 SELECT
-  DISTINCT 
+  DISTINCT
   cols.table_name,
   cols.column_name, cols.data_type,
   COALESCE(cols.character_maximum_length,
@@ -303,34 +305,46 @@ LEFT JOIN information_schema.key_column_usage as keycols
   AND keycols.table_name = cols.table_name
   AND keycols.table_schema = cols.table_schema
 
-WHERE ${where}
-ORDER BY ${order}
+WHERE cols.table_schema ='${schema}' AND cols.table_name ='${table}'
+ORDER BY cols.table_name, cols.column_name, cols.data_type
 ")
+
+(defun default-list-columns ( table &key (schema *schema*) (reverse-joins? nil ))
+  "Returns a list of
+   #(column type length is-null default (key-types) fkey-table fkey-col)
+   for the user columns of table.
+   Do not confuse a table with the clsql class of a table - this needs the actual table name.
+   User columns are those columns which the user defines. Others are defined for various reasons. OID is often
+   one of these."
+  (declare (type (or string symbol) table))
+
+  (setf table (clsql-sys:sql-escape-quotes (normalize-for-sql table)))
+  (setf schema (clsql-sys:sql-escape-quotes (normalize-for-sql schema)))
+  (let* ((sql (case (type-of-db)
+                (:mysql (mysql-list-columns-sql schema table reverse-joins?))
+                (t (default-list-columns-sql schema table reverse-joins?))))
+         (lesser-sql (default-list-columns-lesser-sql schema table))
          (results (or (clsql:query sql :flatp T)
                       (and (not reverse-joins?)
                            (clsql:query lesser-sql :flatp T)))))
-                                        ;(print results)
     (iter
       (with prev-row)
       (for l-row in results)
       (for row = (apply #'column-def l-row))
       (cond
-        ((not (and prev-row
-                   (string-equal (table row) (table prev-row))
-                   (string-equal (column row) (column prev-row))))
-         (setf (db-type row) (symbol-munger:english->keyword (db-type row)))
-         (setf (is-null row) (string-equal (is-null row) "YES"))
-         (setf (constraints row) (list (symbol-munger:english->keyword (constraints row))))
-         (collect row)
-         (setf prev-row row))
-        (T ;; if we got a second row it means the column has more than one constraint
-         ;; we should put that in the constraints list
+        ((column-name= row prev-row) ;; new constraint for prev-row
          (push (symbol-munger:english->keyword (constraints row))
                (constraints prev-row))
          (awhen (fkey-table row)
            (setf (fkey-table prev-row) it))
          (awhen (fkey-col row)
-           (setf (fkey-col prev-row) it)))))))
+           (setf (fkey-col prev-row) it)))
+        (T ;; new column
+         (setf (db-type row) (symbol-munger:english->keyword (db-type row)))
+         (setf (is-null row) (string-equal (is-null row) "YES"))
+         (setf (constraints row) (list (symbol-munger:english->keyword (constraints row))))
+         (collect row)
+         (setf prev-row row))))))
 
 
 ;; TODO: add condition for don't know how to convert db type
@@ -370,7 +384,7 @@ ORDER BY ${order}
 
 
 (defun list-tables (&optional (schema *schema*))
-  (case (clsql-sys::database-underlying-type clsql-sys:*default-database*)
+  (case (type-of-db)
     (:sqlite3 (sqlite3-list-tables :schema schema))
     (T
      (clsql:select [table_name] [table_type]
