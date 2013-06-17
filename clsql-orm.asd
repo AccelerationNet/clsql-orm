@@ -11,5 +11,6 @@
   :version "0.2"
   :serial T
   :components ((:file "package")
-               (:file "main")
-               (:file "sqlite3")))
+               (:file "sqlite3")
+               (:file "mysql")
+               (:file "main")))
