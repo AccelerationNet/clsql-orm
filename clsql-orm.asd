@@ -8,7 +8,7 @@
 
 (defsystem clsql-orm
   :depends-on (:clsql :cl-ppcre :cl-interpol :cl-inflector :symbol-munger :iterate)
-  :version "0.2"
+  :version "0.2.1"
   :serial T
   :components ((:file "package")
                (:file "sqlite3")
