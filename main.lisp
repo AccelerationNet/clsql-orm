@@ -82,6 +82,11 @@
        (string-equal (clsql-orm:column c1) (clsql-orm:column c2))
        (string-equal (clsql-orm:spec-type c1) (clsql-orm:spec-type c2))))
 
+(defun col-spec-eql (c1 c2)
+  (and (typep c1 'column-def) (typep c2 'column-def)
+       (string-equal (clsql-orm:column c1) (clsql-orm:column c2))
+       (string-equal (clsql-orm:spec-type c1) (clsql-orm:spec-type c2))))
+
 (defun column-name= (c1 c2)
   (and (typep c1 'column-def) (typep c2 'column-def)
        (string-equal (schema c1) (schema c2))
@@ -108,6 +113,15 @@
                  :fkey-schema fkey-schema :fkey-table fkey-table :fkey-col fkey-col
                  :spec-type db-type))
 
+(define-condition nullable-column-with-default (warning)
+    ((schema :accessor schema :initarg :schema :initform nil)
+     (table :accessor table :initarg :table :initform nil)
+     (column :accessor column :initarg :column :initform nil)
+     (default :accessor default :initarg :default :initform nil))
+  (:report (lambda (c s)
+             (format s "CLSQL-ORM: The column ~a.~a.~a should not be null and have a default value (~a)"
+                (schema c) (table c) (column c) (default c)))))
+
 (defun clsql-column-definitions (table &key
                                   (schema *schema*)
                                   (generate-accessors t)
@@ -116,7 +130,7 @@
 translate its type, and declare an initarg"
   (let ((cols (list-columns table schema)))
     (unless cols
-      (error "Could not find any columns for table: ~a in schema: ~a.
+      (error "Could not find any columns for table: ~a in schema: ~a
               Are you sure you correctly spelled the table name?
               Are you sure you sure this database connection has access to the table?"
              table schema))
@@ -125,8 +139,7 @@ translate its type, and declare an initarg"
                        (is-null is-null) (default default) (constraints constraints)
                        (fkey-table fkey-table) (fkey-col fkey-col)) col
         (when (and is-null default)
-          (warn "CLSQL-ORM: The column ~a.~a.~a should not be null and have a default value (~a)"
-                schema table column default))
+          (warn 'nullable-column-with-default :schema schema :table table :column column :default default))
         ;; TODO: add a "skip column" and "use explict type" restart
         (collect `(,(intern-normalize-for-lisp column)
                    :column ,column
