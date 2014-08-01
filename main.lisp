@@ -369,9 +369,9 @@ ORDER BY cols.table_name, cols.column_name, cols.data_type
   (ecase db-type
     ((:smallint :tinyint :bigint :int :int2 :int4 :int8 :integer)
      'integer)
-    ((:float :float2 :float4 :float8 :double-precision)
+    ((:float :float2 :float4 :float8 :double-precision :double)
      'double-float)
-    ((:text :ntext :longtext) 'varchar)
+    ((:text :ntext :longtext :mediumtext) 'varchar)
     ;; weird Postgresql types
     ((:point :user-defined) 'varchar)
     ((:char :bpchar :varchar :nvarchar :character-varying :character :string)
@@ -379,6 +379,7 @@ ORDER BY cols.table_name, cols.column_name, cols.data_type
     ((:numeric :decimal :money)
      'number)
     ((:datetime
+      :time
       :timestamptz
       :timestamp
       :timestamp-with-time-zone
