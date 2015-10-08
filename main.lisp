@@ -135,6 +135,7 @@ translate its type, and declare an initarg"
               Are you sure you sure this database connection has access to the table?"
              table schema))
     (iter (for col in cols)
+      (for identity? = (identity-column-p table col))
       (with-accessors ((column column) (db-type db-type) (col-length col-length)
                        (is-null is-null) (default default) (constraints constraints)
                        (fkey-table fkey-table) (fkey-col fkey-col)) col
@@ -147,12 +148,21 @@ translate its type, and declare an initarg"
                        `(:accessor ,(accessor-name-for-column table column)))
                    ,@(when (member :primary-key constraints)
                        '(:db-kind :key))
+                   ,@(when identity?
+                        (case (clsql-sys:database-underlying-type
+                               clsql:*default-database*)
+                          (:postgresql `(:autoincrement-sequence ,identity?))))
                    :db-constraints
                    (
                     ,@(unless is-null '(:not-null))
-                    ,@(when (and (member :primary-key constraints)
-                                 (identity-column-p table column))
-                        '(:identity))
+                    ,@(when (member :primary-key constraints)
+                        '(:primary-key))
+
+                    ,@(when identity?
+                        (case (clsql-sys:database-underlying-type
+                               clsql:*default-database*)
+                          (:mssql '(:identity))
+                          (:mysql '(:auto_increment))))
                     )
                    ,@(cond
                        ( ;; its null with no default
@@ -228,18 +238,28 @@ For that matter, if you wish to have custom names and the like, you'd best defin
 
 ;;;;; External-ish functions
 
-(defun identity-column-p (table column)
+(defun pg-sequence-name (col)
+  (let ((def (default col)))
+    (multiple-value-bind (scan matches)
+        (cl-ppcre:scan-to-strings #?r"nextval\('\"([^\"]*)\"" def)
+      (and scan (plusp (length matches)) (aref matches 0)))))
+
+(defun identity-column-p (table column &aux (colname (column column)))
   "a function that can determine if a key column is IDENTITY for sqlserver"
-  (when (and (find-package :clsql-odbc)
-             (typep clsql-sys:*default-database*
-                    (intern "ODBC-DATABASE" :clsql-odbc)))
-    (setf table (clsql-sys:sql-escape-quotes (normalize-for-sql table)))
-    (setf column (clsql-sys:sql-escape-quotes (normalize-for-sql column)))
-    (handler-case
-        (eql 1 (first (clsql:query #?"select COLUMNPROPERTY(object_id('${table}'), '${column}', 'IsIdentity')"
-                                   :flatp T)))
-      (error (c)
-        (warn "Error querying about IDENTITY ~a" c)))))
+  (when (find :primary-key (constraints column))
+    (case (clsql-sys:database-underlying-type clsql-sys:*default-database*)
+      (:mysql
+       (intersection clsql-sys::+auto-increment-names+ (constraints column)))
+      (:postgresql
+       (pg-sequence-name column))
+      (:mssql
+       (setf table (clsql-sys:sql-escape-quotes (normalize-for-sql table)))
+       (setf column (clsql-sys:sql-escape-quotes (normalize-for-sql colname)))
+       (handler-case
+           (eql 1 (first (clsql:query #?"select COLUMNPROPERTY(object_id('${table}'), '${column}', 'IsIdentity')"
+                                      :flatp T)))
+         (error (c)
+           (warn "Error querying about IDENTITY ~a" c)))))))
 
 (defun list-columns (table &optional (schema *schema*))
   (case (type-of-db)
