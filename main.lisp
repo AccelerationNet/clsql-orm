@@ -241,8 +241,10 @@ For that matter, if you wish to have custom names and the like, you'd best defin
 (defun pg-sequence-name (col)
   (let ((def (default col)))
     (multiple-value-bind (scan matches)
-        (cl-ppcre:scan-to-strings #?r"nextval\('\"([^\"]*)\"" def)
-      (and scan (plusp (length matches)) (aref matches 0)))))
+        (cl-ppcre:scan-to-strings #?r"nextval\('([^\']*)'" def)
+      (let ((seq (and scan (plusp (length matches))
+                      (aref matches 0))))
+        (and seq (string-trim (list #\") seq))))))
 
 (defun identity-column-p (table column &aux (colname (column column)))
   "a function that can determine if a key column is IDENTITY for sqlserver"
