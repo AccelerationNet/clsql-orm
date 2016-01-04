@@ -22,6 +22,7 @@
    :col=
    :col-spec-eql
    :column-name=
-   :column-diff)
+   :column-diff
+   :clsql-join-definition)
   (:documentation "This package provides methods to introspect a database
 Providing features such as generating a CLSQL class based on a table name"))

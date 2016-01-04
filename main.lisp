@@ -187,25 +187,37 @@ translate its type, and declare an initarg"
               (warn "CLSQL-ORM: Could not generate a join for: ~a.~a.~a because we couldnt read the relationship. Perhaps your permissions should be adjusted"
                     schema table column)))))))
 
-(defun clsql-join-definition (home-table home-key foreign-table foreign-key
-                              &key (generate-accessors t))
-  "Creates the definition for the joins. Note that this does not handle multi-column foreign keys at the moment.
-For that matter, if you wish to have custom names and the like, you'd best define an inheriting class"
-  (let ((varname (clsql-join-column-name home-table foreign-table home-key)))
-    `(,varname
-      ,@(when generate-accessors
-          `(:accessor ,varname))
-      :db-kind :join
-      :db-info (:join-class ,(if *singularize*
-                                 (singular-intern-normalize-for-lisp foreign-table)
-                                 (intern-normalize-for-lisp foreign-table))
-                :home-key ,(intern-normalize-for-lisp home-key)
-                :foreign-key ,(intern-normalize-for-lisp foreign-key)
-                :set nil
+(defgeneric clsql-join-definition (home-table home-key foreign-table foreign-key
+                                   &key generate-accessors)
+  (:documentation "Creates the definition for the joins. Note that this does not handle multi-column foreign keys at the moment.
+For that matter, if you wish to have custom names and the like, you'd best define an inheriting class")
+
+  (:method  (home-table home-key foreign-table foreign-key
+             &key (generate-accessors t))
+    (clsql-join-definition
+     (intern-normalize-for-lisp home-table)
+     (intern-normalize-for-lisp home-key)
+     (if *singularize*
+         (singular-intern-normalize-for-lisp foreign-table)
+         (intern-normalize-for-lisp foreign-table))
+     (intern-normalize-for-lisp foreign-key)
+     :generate-accessors generate-accessors))
+  (:method ((home-table symbol) (home-key symbol)
+            (foreign-table symbol) (foreign-key symbol)
+            &key (generate-accessors t))
+    (let ((varname (clsql-join-column-name home-table foreign-table home-key)))
+      `(,varname
+        ,@(when generate-accessors
+            `(:accessor ,varname))
+        :db-kind :join
+        :db-info (:join-class ,foreign-table
+                  :home-key ,home-key
+                  :foreign-key ,foreign-key
+                  :set nil
                                         ;   ,@(if (unique-p join-class foreign-key)
                                         ;         '(:set nil)
                                         ;         '(:set t))
-                ))))
+                ))))))
 
 (defun clsql-reverse-join-definition (column-def
                                       &key (generate-accessors t))
@@ -239,6 +251,7 @@ For that matter, if you wish to have custom names and the like, you'd best defin
 ;;;;; External-ish functions
 
 (defun pg-sequence-name (col)
+  ;;(db-scalar "SELECT pg_get_serial_sequence(${(db-sting table)},${ (db-sting col) })")
   (let ((def (default col)))
     (multiple-value-bind (scan matches)
         (cl-ppcre:scan-to-strings #?r"nextval\('([^\']*)'" def)
