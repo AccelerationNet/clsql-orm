@@ -217,7 +217,7 @@ For that matter, if you wish to have custom names and the like, you'd best defin
                                         ;   ,@(if (unique-p join-class foreign-key)
                                         ;         '(:set nil)
                                         ;         '(:set t))
-                ))))))
+                )))))
 
 (defun clsql-reverse-join-definition (column-def
                                       &key (generate-accessors t))
